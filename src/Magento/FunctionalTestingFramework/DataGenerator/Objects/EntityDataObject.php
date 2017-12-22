@@ -6,6 +6,7 @@
 
 namespace Magento\FunctionalTestingFramework\DataGenerator\Objects;
 
+use Magento\FunctionalTestingFramework\DataGenerator\Handlers\DataObjectHandler;
 use Magento\FunctionalTestingFramework\Exceptions\TestFrameworkException;
 
 /**
@@ -26,6 +27,13 @@ class EntityDataObject
      * @var string
      */
     private $type;
+
+    /**
+     * Name of entity of whose data this entity extends
+     *
+     * @var string
+     */
+    private $extends;
 
     /**
      * An array of required entity name to corresponding type
@@ -71,9 +79,17 @@ class EntityDataObject
      * @param array $linkedEntities
      * @param array $uniquenessData
      * @param array $vars
+     * @param string $extends
      */
-    public function __construct($entityName, $entityType, $data, $linkedEntities, $uniquenessData, $vars = [])
-    {
+    public function __construct(
+        $entityName,
+        $entityType,
+        $data,
+        $linkedEntities,
+        $uniquenessData,
+        $vars = [],
+        $extends = null
+    ) {
         $this->name = $entityName;
         $this->type = $entityType;
         $this->data = $data;
@@ -83,6 +99,7 @@ class EntityDataObject
         }
 
         $this->vars = $vars;
+        $this->extends = $extends;
     }
 
     /**
@@ -121,6 +138,10 @@ class EntityDataObject
      */
     public function getData()
     {
+        if ($this->extends) {
+            $extendedData = DataObjectHandler::getInstance()->getObject($this->extends)->getData();
+            return array_merge($extendedData, $this->data);
+        }
         return $this->data;
     }
 
@@ -142,10 +163,10 @@ class EntityDataObject
 
         $name = strtolower($dataName);
 
-        if ($this->data !== null && array_key_exists($name, $this->data)) {
+        if ($this->getData() !== null && array_key_exists($name, $this->getData())) {
             $uniData = $this->getUniquenessDataByName($dataName);
             if (null === $uniData || $uniDataFormat == self::NO_UNIQUE_PROCESS) {
-                return $this->data[$name];
+                return $this->getData()[$name];
             }
             return $this->formatUniqueData($name, $uniData, $uniDataFormat);
         }
@@ -165,31 +186,31 @@ class EntityDataObject
             case self::SUITE_UNIQUE_VALUE:
                 $this->checkUniquenessFunctionExists(self::SUITE_UNIQUE_FUNCTION, $uniqueDataFormat);
                 if ($uniqueData == 'prefix') {
-                    return msqs($this->getName()) . $this->data[$name];
+                    return msqs($this->getName()) . $this->getData()[$name];
                 } else { // $uniData == 'suffix'
-                    return $this->data[$name] . msqs($this->getName());
+                    return $this->getData()[$name] . msqs($this->getName());
                 }
                 break;
             case self::CEST_UNIQUE_VALUE:
                 $this->checkUniquenessFunctionExists(self::CEST_UNIQUE_FUNCTION, $uniqueDataFormat);
                 if ($uniqueData == 'prefix') {
-                    return msq($this->getName()) . $this->data[$name];
+                    return msq($this->getName()) . $this->getData()[$name];
                 } else { // $uniqueData == 'suffix'
-                    return $this->data[$name] . msq($this->getName());
+                    return $this->getData()[$name] . msq($this->getName());
                 }
                 break;
             case self::SUITE_UNIQUE_NOTATION:
                 if ($uniqueData == 'prefix') {
-                    return self::SUITE_UNIQUE_FUNCTION . '("' . $this->getName() . '")' . $this->data[$name];
+                    return self::SUITE_UNIQUE_FUNCTION . '("' . $this->getName() . '")' . $this->getData()[$name];
                 } else { // $uniqueData == 'suffix'
-                    return $this->data[$name] . self::SUITE_UNIQUE_FUNCTION . '("' . $this->getName() . '")';
+                    return $this->getData()[$name] . self::SUITE_UNIQUE_FUNCTION . '("' . $this->getName() . '")';
                 }
                 break;
             case self::CEST_UNIQUE_NOTATION:
                 if ($uniqueData == 'prefix') {
-                    return self::CEST_UNIQUE_FUNCTION . '("' . $this->getName() . '")' . $this->data[$name];
+                    return self::CEST_UNIQUE_FUNCTION . '("' . $this->getName() . '")' . $this->getData()[$name];
                 } else { // $uniqueData == 'suffix'
-                    return $this->data[$name] . self::CEST_UNIQUE_FUNCTION . '("' . $this->getName() . '")';
+                    return $this->getData()[$name] . self::CEST_UNIQUE_FUNCTION . '("' . $this->getName() . '")';
                 }
                 break;
             default:

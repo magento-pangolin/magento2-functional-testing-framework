@@ -57,6 +57,8 @@ class DataObjectHandler implements ObjectHandlerInterface
     const REQUIRED_ENTITY_TYPE = 'type';
     const REQUIRED_ENTITY_VALUE = 'value';
 
+    const _EXTENDS = 'extends';
+
     /**
      * Singleton method to retrieve instance of DataArrayProcessor
      *
@@ -172,6 +174,8 @@ class DataObjectHandler implements ObjectHandlerInterface
             $vars = [];
             $uniquenessValues = [];
 
+            $extends = $entity[self::_EXTENDS] ?? null;
+
             if (array_key_exists(self::DATA_VALUES, $entity)) {
                 $dataValues = $this->parseDataElements($entity);
                 $uniquenessValues = $this->parseUniquenessValues($entity);
@@ -202,7 +206,8 @@ class DataObjectHandler implements ObjectHandlerInterface
                 $dataValues,
                 $linkedEntities,
                 $uniquenessValues,
-                $vars
+                $vars,
+                $extends
             );
 
             $this->data[$entityDataObject->getName()] = $entityDataObject;

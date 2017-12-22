@@ -18,4 +18,9 @@
         <data key="firstname" unique="prefix">John</data>
         <data key="lastname" unique="suffix">Doe</data>
     </entity>
+    <entity name="extensionData" type="simpleData" extends="simpleData">
+        <data key="prefix">Mr.</data>
+        <data key="suffix">III</data>
+        <data key="middlename">Dosey</data>
+    </entity>
 </config>

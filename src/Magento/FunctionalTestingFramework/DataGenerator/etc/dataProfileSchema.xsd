@@ -62,14 +62,15 @@
                 </xs:annotation>
             </xs:element>
         </xs:choice>
-        <xs:attribute type="xs:string" name="name">
+        <xs:attribute type="xs:string" name="extends" use="optional"/>
+        <xs:attribute type="xs:string" name="name" use="required">
             <xs:annotation>
                 <xs:documentation>
                     Name of the Entity.
                 </xs:documentation>
             </xs:annotation>
         </xs:attribute>
-        <xs:attribute type="xs:string" name="type">
+        <xs:attribute type="xs:string" name="type" use="required">
             <xs:annotation>
                 <xs:documentation>
                     Node containing the exact name of Entity type. Used later to find specific Persistence Layer Model
