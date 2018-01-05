@@ -176,7 +176,7 @@ class MagentoWebDriver extends WebDriver
     }
 
     /**
-     * Grab the entire current webdriver url or the first matching part based on a regex if provided.
+     * Return the current webdriver url or return the first matching capture group.
      * 
      * @param string|null $url
      * @return string
@@ -193,7 +193,7 @@ class MagentoWebDriver extends WebDriver
             $this->fail("Couldn't match $url in " . $fullUrl);
         }
         if (!isset($matches[1])) {
-            $this->fail("Nothing to grab. A regex parameter required. Ex: '/user/(\\d+)'");
+            $this->fail("Nothing to grab. A regex parameter with a capture group is required. Ex: '/(foo)(bar)/'");
         }
         return $matches[1];
     }
