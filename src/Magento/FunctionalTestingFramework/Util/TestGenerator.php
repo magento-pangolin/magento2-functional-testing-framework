@@ -921,9 +921,6 @@ class TestGenerator
                         $actionName
                     );
                     break;
-                case "loginAsAdmin":
-                    $testSteps .= $this->wrapFunctionCall($actor, $actionName, $username, $password);
-                    break;
                 case "resizeWindow":
                     $testSteps .= $this->wrapFunctionCall($actor, $actionName, $width, $height);
                     break;

@@ -125,24 +125,6 @@ class MagentoWebDriver extends WebDriver
     }
 
     /**
-     * Login Magento Admin with given username and password.
-     *
-     * @param string $username
-     * @param string $password
-     * @return void
-     */
-    public function loginAsAdmin($username = null, $password = null)
-    {
-        $this->amOnPage($this->config['backend_name']);
-        $this->fillField('login[username]', !is_null($username) ? $username : $this->config['username']);
-        $this->fillField('login[password]', !is_null($password) ? $password : $this->config['password']);
-        $this->click('Sign in');
-        $this->waitForPageLoad();
-
-        $this->closeAdminNotification();
-    }
-
-    /**
      * Close admin notification popup windows.
      *
      * @return void
@@ -163,6 +145,7 @@ class MagentoWebDriver extends WebDriver
      * @param $select
      * @param array $options
      * @param bool $requireAction
+     * @throws \Exception
      */
     public function searchAndMultiSelectOption($select, array $options, $requireAction = false)
     {
@@ -211,6 +194,7 @@ class MagentoWebDriver extends WebDriver
      * Wait for all JavaScript to finish executing.
      *
      * @param int $timeout
+     * @throws \Exception
      */
     public function waitForPageLoad($timeout = null)
     {
@@ -223,6 +207,8 @@ class MagentoWebDriver extends WebDriver
 
     /**
      * Wait for all visible loading masks to disappear. Gets all elements by mask selector, then loops over them.
+     *
+     * @throws \Exception
      */
     public function waitForLoadingMaskToDisappear()
     {
