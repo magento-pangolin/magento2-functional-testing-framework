@@ -109,7 +109,6 @@ class TestGenerator
      */
     private function createCestFile($testPhp, $filename)
     {
-        $filename = $filename;
         $exportFilePath = $this->exportDirectory . DIRECTORY_SEPARATOR . $filename . ".php";
         $file = fopen($exportFilePath, 'w');
 
@@ -127,6 +126,8 @@ class TestGenerator
      *
      * @param string $runConfig
      * @return void
+     * @throws TestReferenceException
+     * @throws \Exception
      */
     public function createAllTestFiles($runConfig = null)
     {
@@ -150,8 +151,9 @@ class TestGenerator
      * Create all of the PHP strings for a Test. Concatenate the strings together.
      *
      * @param \Magento\FunctionalTestingFramework\Test\Objects\TestObject $testObject
-     * @throws TestReferenceException
      * @return string
+     * @throws TestReferenceException
+     * @throws \Exception
      */
     private function assembleTestPhp($testObject)
     {
@@ -184,6 +186,8 @@ class TestGenerator
      *
      * @param TestManifest $testManifest
      * @return array
+     * @throws TestReferenceException
+     * @throws \Exception
      */
     private function assembleAllTestPhp($testManifest)
     {
@@ -274,7 +278,7 @@ class TestGenerator
      * Method which returns formatted method level annotation based on type and name(s).
      *
      * @param string $annotationType
-     * @param string $annotationName
+     * @param string|null $annotationName
      * @return null|string
      */
     private function generateMethodAnnotations($annotationType = null, $annotationName = null)
@@ -295,6 +299,7 @@ class TestGenerator
                 );
                 $annotationToAppend .= sprintf("{$indent} * @param %s $%s\n", "AcceptanceTester", "I");
                 $annotationToAppend .= "{$indent} * @return void\n";
+                $annotationToAppend .= "{$indent} * @throws \Exception\n";
                 break;
         }
 
@@ -372,6 +377,8 @@ class TestGenerator
      * @param array $stepsObject
      * @param array|bool $hookObject
      * @return string
+     * @throws TestReferenceException
+     * @throws \Exception
      * @SuppressWarnings(PHPMD)
      */
     private function generateStepsPhp($stepsObject, $hookObject = false)
@@ -468,7 +475,8 @@ class TestGenerator
 
                 $parameterArray = "[" . $this->addUniquenessToParamArray(
                     $customActionAttributes['parameterArray']
-                )  . "]";
+                )
+                . "]";
             }
 
             if (isset($customActionAttributes['requiredAction'])) {
@@ -913,14 +921,6 @@ class TestGenerator
                         $actionName
                     );
                     break;
-                case "grabCookie":
-                    $testSteps .= $this->wrapFunctionCallWithReturnValue(
-                        $stepKey,
-                        $actor,
-                        $actionName,
-                        $input
-                    );
-                    break;
                 case "loginAsAdmin":
                     $testSteps .= $this->wrapFunctionCall($actor, $actionName, $username, $password);
                     break;
@@ -1093,6 +1093,7 @@ class TestGenerator
      * @param string $inputString
      * @param array $args
      * @return string
+     * @throws \Exception
      */
     private function resolveTestVariable($inputString, $args)
     {
@@ -1241,6 +1242,7 @@ class TestGenerator
      * @param array $hookObjects
      * @return string
      * @throws TestReferenceException
+     * @throws \Exception
      */
     private function generateHooksPhp($hookObjects)
     {
@@ -1292,6 +1294,7 @@ class TestGenerator
      * @param TestObject $test
      * @return string
      * @throws TestReferenceException
+     * @throws \Exception
      */
     private function generateTestPhp($test)
     {
@@ -1436,6 +1439,7 @@ class TestGenerator
      * @param string $action
      * @param array ...$args
      * @return string
+     * @throws \Exception
      */
     private function wrapFunctionCall($actor, $action, ...$args)
     {
@@ -1464,6 +1468,7 @@ class TestGenerator
      * @param string $action
      * @param array ...$args
      * @return string
+     * @throws \Exception
      */
     private function wrapFunctionCallWithReturnValue($returnVariable, $actor, $action, ...$args)
     {
@@ -1505,6 +1510,7 @@ class TestGenerator
      * @param string $value
      * @param string $type
      * @return string
+     * @throws TestReferenceException
      * @SuppressWarnings(PHPMD.CyclomaticComplexity)
      */
     private function resolveValueByType($value, $type)
