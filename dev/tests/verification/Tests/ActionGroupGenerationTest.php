@@ -5,74 +5,183 @@
  */
 namespace tests\verification\Tests;
 
-use Magento\FunctionalTestingFramework\Test\Handlers\TestObjectHandler;
-use Magento\FunctionalTestingFramework\Util\TestGenerator;
-use PHPUnit\Framework\TestCase;
+use tests\util\MftfTestCase;
 
-class ActionGroupGenerationTest extends TestCase
+class ActionGroupGenerationTest extends MftfTestCase
 {
-    const RESOURCES_PATH = __DIR__ . '/../Resources';
-
-    /**
-     * Tests flat generation of a hardcoded test file with no external references.
-     */
-    private function validateGenerateAndContents($testName)
-    {
-        $test = TestObjectHandler::getInstance()->getObject($testName);
-        $testHandler = TestGenerator::getInstance(null, [$test]);
-        $testHandler->createAllTestFiles();
-
-        $this->assertFileEquals(
-            self::RESOURCES_PATH . DIRECTORY_SEPARATOR . $testName . ".txt",
-            $testHandler->getExportDir() . DIRECTORY_SEPARATOR . $test->getCodeceptionName() . ".php"
-        );
-    }
-
     /**
      * Test generation of a test referencing an action group with no arguments
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testActionGroupWithNoArguments()
     {
-        $this->validateGenerateAndContents('ActionGroupWithNoArguments');
+        $this->generateAndCompareTest('ActionGroupWithNoArguments');
     }
 
     /**
      * Test generation of a test referencing an action group with default arguments and string selector
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testActionGroupWithDefaultArgumentAndStringSelectorParam()
     {
-        $this->validateGenerateAndContents('ActionGroupWithDefaultArgumentAndStringSelectorParam');
+        $this->generateAndCompareTest('ActionGroupWithDefaultArgumentAndStringSelectorParam');
     }
 
     /**
      * Test generation of a test referencing an action group with passed arguments
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testActionGroupWithPassedArgumentAndStringSelectorParam()
     {
-        $this->validateGenerateAndContents('ActionGroupWithPassedArgumentAndStringSelectorParam');
+        $this->generateAndCompareTest('ActionGroupWithPassedArgumentAndStringSelectorParam');
     }
 
     /**
      * Test generation of a test referencing an action group with single parameter selector and default arguments
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testActionGroupWithSingleParameterSelectorFromDefaultArgument()
     {
-        $this->validateGenerateAndContents('ActionGroupWithSingleParameterSelectorFromDefaultArgument');
+        $this->generateAndCompareTest('ActionGroupWithSingleParameterSelectorFromDefaultArgument');
     }
 
     /**
      * Test generation of test referencing an action group with single parameter from a passed arguemnt
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testActionGroupWithSingleParameterSelectorFromPassedArgument()
     {
-        $this->validateGenerateAndContents('ActionGroupWithSingleParameterSelectorFromPassedArgument');
+        $this->generateAndCompareTest('ActionGroupWithSingleParameterSelectorFromPassedArgument');
     }
 
     /**
      * Test generation of a test referencing an action group with multiple parameter selectors and default arguments
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testActionGroupWithMultipleParameterSelectorsFromDefaultArgument()
     {
-        $this->validateGenerateAndContents('ActionGroupWithMultipleParameterSelectorsFromDefaultArgument');
+        $this->generateAndCompareTest('ActionGroupWithMultipleParameterSelectorsFromDefaultArgument');
+    }
+
+    /**
+     * Test generation of a test referencing an action group with simple passed data.
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
+     */
+    public function testActionGroupWithSimpleDataUsageFromPassedArgument()
+    {
+        $this->generateAndCompareTest('ActionGroupWithSimpleDataUsageFromPassedArgument');
+    }
+
+    /**
+     * Test generation of a test referencing an action group with default data.
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
+     */
+    public function testActionGroupWithSimpleDataUsageFromDefaultArgument()
+    {
+        $this->generateAndCompareTest('ActionGroupWithSimpleDataUsageFromDefaultArgument');
+    }
+
+    /**
+     * Test generation of a test referencing an action group that uses stepKey references (grabFrom/CreateData)
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
+     */
+    public function testActionGroupWithStepKeyReferences()
+    {
+        $this->generateAndCompareTest('ActionGroupWithStepKeyReferences');
+    }
+
+    /**
+     * Test generation of a test referencing an action group that uses stepKey references (grabFrom/CreateData)
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
+     */
+    public function testActionGroupWithNestedArgument()
+    {
+        $this->generateAndCompareTest('ActionGroupUsingNestedArgument');
+    }
+
+    /**
+     * Test generation of a test referencing an action group that uses stepKey references (grabFrom/CreateData)
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
+     */
+    public function testActionGroupWithPersistedAndXmlEntityArguments()
+    {
+        $this->generateAndCompareTest('PersistedAndXmlEntityArguments');
+    }
+
+    /**
+     * Test generation of a test referencing an action group which is referenced by another action group
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
+     */
+    public function testActionGroupToExtend()
+    {
+        $this->generateAndCompareTest('ActionGroupToExtend');
+    }
+
+    /**
+     * Test generation of a test referencing an action group that references another action group
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
+     */
+    public function testExtendedActionGroup()
+    {
+        $this->generateAndCompareTest('ExtendedActionGroup');
+    }
+
+    /**
+     * Test generation of a test referencing an action group that references another action group but removes an action
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
+     */
+    public function testExtendedRemoveActionGroup()
+    {
+        $this->generateAndCompareTest('ExtendedRemoveActionGroup');
+    }
+
+    /**
+     * Test generation of a test referencing an action group that uses stepKey references within the action group
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
+     */
+    public function testActionGroupWithCreateData()
+    {
+        $this->generateAndCompareTest('ActionGroupUsingCreateData');
+    }
+
+    /**
+     * Test an action group with an arg containing stepKey text
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
+     */
+    public function testActionGroupWithArgContainingStepKey()
+    {
+        $this->generateAndCompareTest('ActionGroupContainsStepKeyInArgText');
     }
 }

@@ -28,11 +28,18 @@ class ActionGroupObjectBuilder
     private $actionObjects = [];
 
     /**
-     * Action Group Object Builder default arguments.
+     * Action Group Object Builder default entity arguments.
      *
      * @var array
      */
-    private $arguments = ['arg1' => 'data1'];
+    private $arguments = [];
+
+    /**
+     * Action Group Object Builder default name
+     *
+     * @var string
+     */
+    private $extends = null;
 
     /**
      * Setter for the Action Group Object name
@@ -71,6 +78,18 @@ class ActionGroupObjectBuilder
     }
 
     /**
+     * Setter for the Action Group Object extended objects
+     *
+     * @param string $extendedActionGroup
+     * @return ActionGroupObjectBuilder
+     */
+    public function withExtendedAction($extendedActionGroup)
+    {
+        $this->extends = $extendedActionGroup;
+        return $this;
+    }
+
+    /**
      * ActionGroupObjectBuilder constructor.
      */
     public function __construct()
@@ -90,7 +109,8 @@ class ActionGroupObjectBuilder
         return new ActionGroupObject(
             $this->name,
             $this->arguments,
-            $this->actionObjects
+            $this->actionObjects,
+            $this->extends
         );
     }
 }

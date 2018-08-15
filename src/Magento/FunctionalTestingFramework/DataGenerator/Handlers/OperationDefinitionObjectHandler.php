@@ -3,13 +3,13 @@
  * Copyright © Magento, Inc. All rights reserved.
  * See COPYING.txt for license details.
  */
-
 namespace Magento\FunctionalTestingFramework\DataGenerator\Handlers;
 
 use Magento\FunctionalTestingFramework\DataGenerator\Objects\OperationDefinitionObject;
 use Magento\FunctionalTestingFramework\DataGenerator\Objects\OperationElement;
 use Magento\FunctionalTestingFramework\DataGenerator\Parsers\OperationDefinitionParser;
 use Magento\FunctionalTestingFramework\DataGenerator\Util\OperationElementExtractor;
+use Magento\FunctionalTestingFramework\Exceptions\XmlException;
 use Magento\FunctionalTestingFramework\ObjectManager\ObjectHandlerInterface;
 use Magento\FunctionalTestingFramework\ObjectManagerFactory;
 
@@ -21,6 +21,7 @@ class OperationDefinitionObjectHandler implements ObjectHandlerInterface
     const ENTITY_OPERATION_URL = 'url';
     const ENTITY_OPERATION_METHOD = 'method';
     const ENTITY_OPERATION_AUTH = 'auth';
+    const ENTITY_OPERATION_URL_AREA = 'area';
     const ENTITY_OPERATION_STORE_CODE = 'storeCode';
     const ENTITY_OPERATION_SUCCESS_REGEX = 'successRegex';
     const ENTITY_OPERATION_RETURN_REGEX = 'returnRegex';
@@ -41,6 +42,7 @@ class OperationDefinitionObjectHandler implements ObjectHandlerInterface
     const ENTITY_OPERATION_OBJECT_KEY = 'key';
     const ENTITY_OPERATION_OBJECT_VALUE = 'value';
     const ENTITY_OPERATION_REQUIRED = 'required';
+    const ENTITY_OPERATION_BACKEND_REMOVE = 'removeBackend';
 
     /**
      * The singleton instance of this class
@@ -124,6 +126,8 @@ class OperationDefinitionObjectHandler implements ObjectHandlerInterface
      * into an array of objects.
      *
      * @return void
+     * @throws \Exception
+     *
      * @SuppressWarnings(PHPMD.CyclomaticComplexity)
      * @SuppressWarnings(PHPMD.NPathComplexity)
      * @SuppressWarnings(PHPMD.UnusedPrivateMethod)
@@ -148,6 +152,7 @@ class OperationDefinitionObjectHandler implements ObjectHandlerInterface
             $headers = [];
             $params = [];
             $operationElements = [];
+            $removeBackend = $opDefArray[OperationDefinitionObjectHandler::ENTITY_OPERATION_BACKEND_REMOVE] ?? false;
 
             if (array_key_exists(OperationDefinitionObjectHandler::ENTITY_OPERATION_HEADER, $opDefArray)) {
                 foreach ($opDefArray[OperationDefinitionObjectHandler::ENTITY_OPERATION_HEADER] as $headerEntry) {
@@ -230,6 +235,7 @@ class OperationDefinitionObjectHandler implements ObjectHandlerInterface
                 $params,
                 $operationElements,
                 $contentType,
+                $removeBackend,
                 $successRegex,
                 $returnRegex
             );

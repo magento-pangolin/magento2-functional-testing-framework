@@ -27,7 +27,7 @@ class NodeMergingConfig
     /**
      * NodeMergingConfig constructor.
      * @param NodePathMatcher $nodePathMatcher
-     * @param array $idAttributes
+     * @param array           $idAttributes
      */
     public function __construct(NodePathMatcher $nodePathMatcher, array $idAttributes)
     {
@@ -49,5 +49,15 @@ class NodeMergingConfig
             }
         }
         return null;
+    }
+
+    /**
+     * Getter to return nodePathMatcher for convenience
+     *
+     * @return NodePathMatcher
+     */
+    public function getNodePathMatcher()
+    {
+        return $this->nodePathMatcher;
     }
 }

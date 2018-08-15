@@ -18,13 +18,15 @@ use Magento\FunctionalTestingFramework\Test\Objects\TestObject;
 use Magento\FunctionalTestingFramework\Test\Parsers\TestDataParser;
 use Magento\FunctionalTestingFramework\Test\Util\ActionObjectExtractor;
 use Magento\FunctionalTestingFramework\Test\Util\TestObjectExtractor;
-use PHPUnit\Framework\TestCase;
+use Magento\FunctionalTestingFramework\Util\MagentoTestCase;
 use tests\unit\Util\TestDataArrayBuilder;
 
-class TestObjectHandlerTest extends TestCase
+class TestObjectHandlerTest extends MagentoTestCase
 {
     /**
-     * Basic test to validate array => test object conversion
+     * Basic test to validate array => test object conversion.
+     *
+     * @throws \Exception
      */
     public function testGetTestObject()
     {
@@ -32,6 +34,7 @@ class TestObjectHandlerTest extends TestCase
         $testDataArrayBuilder = new TestDataArrayBuilder();
         $mockData = $testDataArrayBuilder
             ->withAnnotations()
+            ->withFailedHook()
             ->withAfterHook()
             ->withBeforeHook()
             ->withTestActions()
@@ -54,17 +57,26 @@ class TestObjectHandlerTest extends TestCase
             $testDataArrayBuilder->testActionType,
             []
         );
+        $expectedFailedActionObject = new ActionObject(
+            'saveScreenshot',
+            'saveScreenshot',
+            []
+        );
+
         $expectedBeforeHookObject = new TestHookObject(
             TestObjectExtractor::TEST_BEFORE_HOOK,
             $testDataArrayBuilder->testName,
-            [$expectedBeforeActionObject],
-            []
+            ["testActionBefore" => $expectedBeforeActionObject]
         );
         $expectedAfterHookObject = new TestHookObject(
             TestObjectExtractor::TEST_AFTER_HOOK,
             $testDataArrayBuilder->testName,
-            [$expectedAfterActionObject],
-            []
+            ["testActionAfter" => $expectedAfterActionObject]
+        );
+        $expectedFailedHookObject = new TestHookObject(
+            TestObjectExtractor::TEST_FAILED_HOOK,
+            $testDataArrayBuilder->testName,
+            [$expectedFailedActionObject]
         );
 
         $expectedTestActionObject = new ActionObject(
@@ -74,22 +86,35 @@ class TestObjectHandlerTest extends TestCase
         );
         $expectedTestObject = new TestObject(
             $testDataArrayBuilder->testName,
-            [$expectedTestActionObject],
+            ["testActionInTest" => $expectedTestActionObject],
             [
+                'features' => ['NO MODULE DETECTED'],
                 'group' => ['test']
             ],
             [
                 TestObjectExtractor::TEST_BEFORE_HOOK => $expectedBeforeHookObject,
-                TestObjectExtractor::TEST_AFTER_HOOK => $expectedAfterHookObject
+                TestObjectExtractor::TEST_AFTER_HOOK => $expectedAfterHookObject,
+                TestObjectExtractor::TEST_FAILED_HOOK => $expectedFailedHookObject
             ],
-            []
+            null
         );
 
         $this->assertEquals($expectedTestObject, $actualTestObject);
     }
 
     /**
-     * Tests the function used to get a series of relevant tests by group
+     * Tests basic getting of a test that has a fileName
+     */
+    public function testGetTestWithFileName()
+    {
+        $this->markTestIncomplete();
+        //TODO
+    }
+
+    /**
+     * Tests the function used to get a series of relevant tests by group.
+     *
+     * @throws \Exception
      */
     public function testGetTestsByGroup()
     {
@@ -117,9 +142,48 @@ class TestObjectHandlerTest extends TestCase
     }
 
     /**
+     * Tests the function used to parse and determine a test's Module (used in allure Features annotation)
+     *
+     * @throws \Exception
+     */
+    public function testGetTestWithModuleName()
+    {
+        // set up Test Data
+        $moduleExpected = "SomeTestModule";
+        $filepath = DIRECTORY_SEPARATOR .
+            "user" .
+            "magento2ce" . DIRECTORY_SEPARATOR .
+            "dev" . DIRECTORY_SEPARATOR .
+            "tests" . DIRECTORY_SEPARATOR .
+            "acceptance" . DIRECTORY_SEPARATOR .
+            "tests" . DIRECTORY_SEPARATOR .
+            $moduleExpected . DIRECTORY_SEPARATOR .
+            "Tests" . DIRECTORY_SEPARATOR .
+            "text.xml";
+        // set up mock data
+        $testDataArrayBuilder = new TestDataArrayBuilder();
+        $mockData = $testDataArrayBuilder
+            ->withAnnotations()
+            ->withFailedHook()
+            ->withAfterHook()
+            ->withBeforeHook()
+            ->withTestActions()
+            ->withFileName($filepath)
+            ->build();
+        $this->setMockParserOutput(['tests' => $mockData]);
+        // Execute Test Method
+        $toh = TestObjectHandler::getInstance();
+        $actualTestObject = $toh->getObject($testDataArrayBuilder->testName);
+        $moduleName = $actualTestObject->getAnnotations()["features"][0];
+        //performAsserts
+        $this->assertEquals($moduleExpected, $moduleName);
+    }
+
+    /**
      * Function used to set mock for parser return and force init method to run between tests.
      *
      * @param array $data
+     * @throws \Exception
      */
     private function setMockParserOutput($data)
     {

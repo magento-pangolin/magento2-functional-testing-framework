@@ -8,15 +8,17 @@ namespace Magento\FunctionalTestingFramework\DataGenerator\Handlers;
 
 use Magento\FunctionalTestingFramework\DataGenerator\Objects\EntityDataObject;
 use Magento\FunctionalTestingFramework\DataGenerator\Parsers\DataProfileSchemaParser;
+use Magento\FunctionalTestingFramework\Exceptions\XmlException;
 use Magento\FunctionalTestingFramework\ObjectManager\ObjectHandlerInterface;
 use Magento\FunctionalTestingFramework\ObjectManagerFactory;
+use Magento\FunctionalTestingFramework\DataGenerator\Util\DataExtensionUtil;
 
 class DataObjectHandler implements ObjectHandlerInterface
 {
-    const __ENV = '_ENV';
     const _ENTITY = 'entity';
     const _NAME = 'name';
     const _TYPE = 'type';
+    const _EXTENDS = 'extends';
     const _DATA = 'data';
     const _KEY = 'key';
     const _VALUE = 'value';
@@ -29,7 +31,8 @@ class DataObjectHandler implements ObjectHandlerInterface
     const _ENTITY_TYPE = 'entityType';
     const _ENTITY_KEY = 'entityKey';
     const _SEPARATOR = '->';
-    const _REQUIRED_ENTITY = 'required-entity';
+    const _REQUIRED_ENTITY = 'requiredEntity';
+    const DATA_NAME_ERROR_MSG = "Entity names cannot contain non alphanumeric characters.\tData='%s'";
 
     /**
      * The singleton instance of this class
@@ -46,6 +49,13 @@ class DataObjectHandler implements ObjectHandlerInterface
     private $entityDataObjects = [];
 
     /**
+     * Instance of DataExtensionUtil class
+     *
+     * @var DataExtensionUtil
+     */
+    private $extendUtil;
+
+    /**
      * Constructor
      */
     private function __construct()
@@ -56,7 +66,7 @@ class DataObjectHandler implements ObjectHandlerInterface
             return;
         }
         $this->entityDataObjects = $this->processParserOutput($parserOutput);
-        $this->entityDataObjects[self::__ENV] = $this->processEnvFile();
+        $this->extendUtil = new DataExtensionUtil();
     }
 
     /**
@@ -81,10 +91,8 @@ class DataObjectHandler implements ObjectHandlerInterface
      */
     public function getObject($name)
     {
-        $allObjects = $this->getAllObjects();
-
-        if (array_key_exists($name, $allObjects)) {
-            return $allObjects[$name];
+        if (array_key_exists($name, $this->entityDataObjects)) {
+            return $this->extendDataObject($this->entityDataObjects[$name]);
         }
 
         return null;
@@ -97,45 +105,18 @@ class DataObjectHandler implements ObjectHandlerInterface
      */
     public function getAllObjects()
     {
-        return $this->entityDataObjects;
-    }
-
-    /**
-     * Convert the contents of the .env file into a single EntityDataObject so that the values can be accessed like
-     * normal data.
-     *
-     * @return EntityDataObject|null
-     */
-    private function processEnvFile()
-    {
-        // These constants are defined in the bootstrap file
-        $path = PROJECT_ROOT . DIRECTORY_SEPARATOR . '.env';
-
-        if (file_exists($path)) {
-            $vars = [];
-            $lines = file($path);
-
-            foreach ($lines as $line) {
-                $parts = explode("=", $line);
-                if (count($parts) != 2) {
-                    continue;
-                }
-                $key = strtolower(trim($parts[0]));
-                $value = trim($parts[1]);
-                $vars[$key] = $value;
-            }
-
-            return new EntityDataObject(self::__ENV, 'environment', $vars, null, null);
+        foreach ($this->entityDataObjects as $entityName => $entityObject) {
+            $this->entityDataObjects[$entityName] = $this->extendDataObject($entityObject);
         }
-
-        return null;
+        return $this->entityDataObjects;
     }
 
     /**
      * Convert the parser output into a collection of EntityDataObjects
      *
-     * @param string[] $parserOutput primitive array output from the Magento parser
+     * @param string[] $parserOutput Primitive array output from the Magento parser.
      * @return EntityDataObject[]
+     * @throws XmlException
      */
     private function processParserOutput($parserOutput)
     {
@@ -143,12 +124,16 @@ class DataObjectHandler implements ObjectHandlerInterface
         $rawEntities = $parserOutput[self::_ENTITY];
 
         foreach ($rawEntities as $name => $rawEntity) {
-            $type = $rawEntity[self::_TYPE];
+            if (preg_match('/[^a-zA-Z0-9_]/', $name)) {
+                throw new XmlException(sprintf(self::DATA_NAME_ERROR_MSG, $name));
+            }
+
+            $type = $rawEntity[self::_TYPE] ?? null;
             $data = [];
             $linkedEntities = [];
-            $values = [];
             $uniquenessData = [];
             $vars = [];
+            $parentEntity = null;
 
             if (array_key_exists(self::_DATA, $rawEntity)) {
                 $data = $this->processDataElements($rawEntity);
@@ -162,12 +147,8 @@ class DataObjectHandler implements ObjectHandlerInterface
             if (array_key_exists(self::_ARRAY, $rawEntity)) {
                 $arrays = $rawEntity[self::_ARRAY];
                 foreach ($arrays as $array) {
-                    $items = $array[self::_ITEM];
-                    foreach ($items as $item) {
-                        $values[] = $item[self::_VALUE];
-                    }
-                    $key = $array[self::_KEY];
-                    $data[strtolower($key)] = $values;
+                    $key = strtolower($array[self::_KEY]);
+                    $data[$key] = $this->processArray($array[self::_ITEM], $data, $key);
                 }
             }
 
@@ -175,12 +156,42 @@ class DataObjectHandler implements ObjectHandlerInterface
                 $vars = $this->processVarElements($rawEntity);
             }
 
-            $entityDataObject = new EntityDataObject($name, $type, $data, $linkedEntities, $uniquenessData, $vars);
+            if (array_key_exists(self::_EXTENDS, $rawEntity)) {
+                $parentEntity = $rawEntity[self::_EXTENDS];
+            }
+
+            $entityDataObject = new EntityDataObject(
+                $name,
+                $type,
+                $data,
+                $linkedEntities,
+                $uniquenessData,
+                $vars,
+                $parentEntity
+            );
 
             $entityDataObjects[$entityDataObject->getName()] = $entityDataObject;
         }
 
         return $entityDataObjects;
+    }
+
+    /**
+     * Takes an array of items and a top level entity data array and merges in elements from parsed entity definitions.
+     *
+     * @param array  $arrayItems
+     * @param array  $data
+     * @param string $key
+     * @return array
+     */
+    private function processArray($arrayItems, $data, $key)
+    {
+        $items = [];
+        foreach ($arrayItems as $item) {
+            $items[] = $item[self::_VALUE];
+        }
+
+        return array_merge($items, $data[$key] ?? []);
     }
 
     /**
@@ -219,7 +230,7 @@ class DataObjectHandler implements ObjectHandlerInterface
     }
 
     /**
-     * Parses <required-entity> elements given entity, and returns them as an array of "EntityValue"=>"EntityType"
+     * Parses <requiredEntity> elements given entity, and returns them as an array of "EntityValue"=>"EntityType"
      *
      * @param string[] $entityData
      * @return string[]
@@ -251,5 +262,19 @@ class DataObjectHandler implements ObjectHandlerInterface
             $vars[$varKey] = $varValue;
         }
         return $vars;
+    }
+
+    /**
+     * This method checks if the data object is extended and creates a new data object accordingly
+     *
+     * @param EntityDataObject $dataObject
+     * @return EntityDataObject
+     */
+    private function extendDataObject($dataObject)
+    {
+        if ($dataObject->getParentName() != null) {
+            return $this->extendUtil->extendEntity($dataObject);
+        }
+        return $dataObject;
     }
 }

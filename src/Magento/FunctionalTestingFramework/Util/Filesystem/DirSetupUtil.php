@@ -12,6 +12,13 @@ use RecursiveDirectoryIterator;
 class DirSetupUtil
 {
     /**
+     * Array which will track any previously cleared directories, to prevent any unintended removal.
+     *
+     * @var array
+     */
+    private static $DIR_CONTEXT = [];
+
+    /**
      * Method used to clean export dir if needed and create new empty export dir.
      *
      * @param string $fullPath
@@ -19,11 +26,19 @@ class DirSetupUtil
      */
     public static function createGroupDir($fullPath)
     {
-        if (file_exists($fullPath)) {
-            self::rmDirRecursive($fullPath);
+        //prevent redundant calls to these directories
+        $sanitizedPath = rtrim($fullPath, DIRECTORY_SEPARATOR);
+        // make sure we haven't already cleaned up this directory at any point before deletion
+        if (in_array($sanitizedPath, self::$DIR_CONTEXT)) {
+            return;
         }
 
-        mkdir($fullPath, 0777, true);
+        if (file_exists($sanitizedPath)) {
+            self::rmDirRecursive($sanitizedPath);
+        }
+
+        mkdir($sanitizedPath, 0777, true);
+        self::$DIR_CONTEXT[] = $sanitizedPath;
     }
 
     /**

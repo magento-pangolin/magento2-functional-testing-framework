@@ -6,12 +6,14 @@
 namespace Magento\FunctionalTestingFramework\Suite\Util;
 
 use Exception;
+use Magento\FunctionalTestingFramework\Exceptions\XmlException;
 use Magento\FunctionalTestingFramework\Suite\Objects\SuiteObject;
 use Magento\FunctionalTestingFramework\Test\Handlers\TestObjectHandler;
 use Magento\FunctionalTestingFramework\Test\Objects\TestObject;
 use Magento\FunctionalTestingFramework\Test\Util\BaseObjectExtractor;
 use Magento\FunctionalTestingFramework\Test\Util\TestHookObjectExtractor;
 use Magento\FunctionalTestingFramework\Test\Util\TestObjectExtractor;
+use Magento\FunctionalTestingFramework\Util\Validation\NameValidationUtil;
 
 class SuiteObjectExtractor extends BaseObjectExtractor
 {
@@ -37,18 +39,47 @@ class SuiteObjectExtractor extends BaseObjectExtractor
      *
      * @param array $parsedSuiteData
      * @return array
+     * @throws XmlException
+     * @SuppressWarnings(PHPMD.CyclomaticComplexity)
+     * @SuppressWarnings(PHPMD.NPathComplexity)
+     * @throws \Exception
      */
     public function parseSuiteDataIntoObjects($parsedSuiteData)
     {
         $suiteObjects = [];
         $testHookObjectExtractor = new TestHookObjectExtractor();
+
+        // make sure there are suites defined before trying to parse as objects.
+        if (!array_key_exists(self::SUITE_ROOT_TAG, $parsedSuiteData)) {
+            return $suiteObjects;
+        }
+
         foreach ($parsedSuiteData[self::SUITE_ROOT_TAG] as $parsedSuite) {
             if (!is_array($parsedSuite)) {
                 // skip non array items parsed from suite (suite objects will always be arrays)
                 continue;
             }
 
+            // validate the name used isn't using special char or the "default" reserved name
+            NameValidationUtil::validateName($parsedSuite[self::NAME], 'Suite');
+            if ($parsedSuite[self::NAME] == 'default') {
+                throw new XmlException("A Suite can not have the name \"default\"");
+            }
+
             $suiteHooks = [];
+
+            //Check for collisions between suite name and existing group name
+            $suiteName = $parsedSuite[self::NAME];
+            $testGroupConflicts = TestObjectHandler::getInstance()->getTestsByGroup($suiteName);
+            if (!empty($testGroupConflicts)) {
+                $testGroupConflictsFileNames = "";
+                foreach ($testGroupConflicts as $test) {
+                    $testGroupConflictsFileNames .= $test->getFilename() . "\n";
+                }
+                $exceptionmessage = "\"Suite names and Group names can not have the same value. \t\n" .
+                    "Suite: \"{$suiteName}\" also exists as a group annotation in: \n{$testGroupConflictsFileNames}";
+                throw new XmlException($exceptionmessage);
+            }
 
             //extract include and exclude references
             $groupTestsToInclude = $parsedSuite[self::INCLUDE_TAG_NAME] ?? [];
@@ -57,11 +88,6 @@ class SuiteObjectExtractor extends BaseObjectExtractor
             // resolve references as test objects
             $includeTests = $this->extractTestObjectsFromSuiteRef($groupTestsToInclude);
             $excludeTests = $this->extractTestObjectsFromSuiteRef($groupTestsToExclude);
-
-            // add all test if include tests is completely empty
-            if (empty($includeTests)) {
-                $includeTests = TestObjectHandler::getInstance()->getAllObjects();
-            }
 
             // parse any object hooks
             if (array_key_exists(TestObjectExtractor::TEST_BEFORE_HOOK, $parsedSuite)) {
@@ -77,6 +103,31 @@ class SuiteObjectExtractor extends BaseObjectExtractor
                     TestObjectExtractor::TEST_AFTER_HOOK,
                     $parsedSuite[TestObjectExtractor::TEST_AFTER_HOOK]
                 );
+            }
+
+            if (count($suiteHooks) == 1) {
+                throw new XmlException(sprintf(
+                    "Suites that contain hooks must contain both a 'before' and an 'after' hook. Suite: \"%s\"",
+                    $parsedSuite[self::NAME]
+                ));
+            }
+            // check if suite hooks are empty/not included and there are no included tests/groups/modules
+            $noHooks = count($suiteHooks) == 0 ||
+                (
+                    empty($suiteHooks['before']->getActions()) &&
+                    empty($suiteHooks['after']->getActions())
+                );
+            // if suite body is empty throw error
+            if ($noHooks && empty($includeTests) && empty($excludeTests)) {
+                throw new XmlException(sprintf(
+                    "Suites must not be empty. Suite: \"%s\"",
+                    $parsedSuite[self::NAME]
+                ));
+            }
+
+            // add all test if include tests is completely empty
+            if (empty($includeTests)) {
+                $includeTests = TestObjectHandler::getInstance()->getAllObjects();
             }
 
             // create the new suite object
@@ -97,6 +148,7 @@ class SuiteObjectExtractor extends BaseObjectExtractor
      *
      * @param array $suiteReferences
      * @return array
+     * @throws \Exception
      */
     private function extractTestObjectsFromSuiteRef($suiteReferences)
     {
@@ -118,7 +170,7 @@ class SuiteObjectExtractor extends BaseObjectExtractor
                 case self::MODULE_TAG_NAME:
                     $testObjectList = array_merge($testObjectList, $this->extractModuleAndFiles(
                         $suiteRefData[self::NAME],
-                        $suiteRefData[self::MODULE_TAG_FILE_ATTRIBUTE ?? null]
+                        $suiteRefData[self::MODULE_TAG_FILE_ATTRIBUTE] ?? null
                     ));
                     break;
             }
@@ -133,6 +185,7 @@ class SuiteObjectExtractor extends BaseObjectExtractor
      * @param string $moduleName
      * @param string $moduleFilePath
      * @return array
+     * @throws \Exception
      */
     private function extractModuleAndFiles($moduleName, $moduleFilePath)
     {
@@ -147,7 +200,7 @@ class SuiteObjectExtractor extends BaseObjectExtractor
      * Takes a filepath (and optionally a module name) and resolves to a test object.
      *
      * @param string $filename
-     * @param null $moduleName
+     * @param null   $moduleName
      * @return TestObject[]
      * @throws Exception
      */
@@ -183,6 +236,7 @@ class SuiteObjectExtractor extends BaseObjectExtractor
      *
      * @param string $moduleName
      * @return array
+     * @throws \Exception
      */
     private function resolveModulePathTestNames($moduleName)
     {
@@ -198,8 +252,11 @@ class SuiteObjectExtractor extends BaseObjectExtractor
         );
 
         foreach ($xmlFiles as $xmlFile) {
-            $testObj = $this->resolveFilePathTestNames($xmlFile);
-            $testObjects[$testObj->getName()] = $testObj;
+            $testObjs = $this->resolveFilePathTestNames($xmlFile);
+
+            foreach ($testObjs as $testObj) {
+                $testObjects[$testObj->getName()] = $testObj;
+            }
         }
 
         return $testObjects;

@@ -9,15 +9,14 @@ namespace Magento\FunctionalTestingFramework\Module;
 use Codeception\Module\WebDriver;
 use Codeception\Test\Descriptor;
 use Codeception\TestInterface;
-use Facebook\WebDriver\WebDriverSelect;
-use Facebook\WebDriver\WebDriverBy;
-use Facebook\WebDriver\Exception\NoSuchElementException;
-use Codeception\Exception\ElementNotFound;
+use Facebook\WebDriver\Interactions\WebDriverActions;
 use Codeception\Exception\ModuleConfigException;
 use Codeception\Exception\ModuleException;
 use Codeception\Util\Uri;
-use Codeception\Util\ActionSequence;
-use Magento\Setup\Exception;
+use Magento\FunctionalTestingFramework\DataGenerator\Handlers\CredentialStore;
+use Magento\FunctionalTestingFramework\DataGenerator\Persist\Curl\WebapiExecutor;
+use Magento\FunctionalTestingFramework\Util\Protocol\CurlTransport;
+use Magento\FunctionalTestingFramework\Util\Protocol\CurlInterface;
 use Magento\FunctionalTestingFramework\Util\ConfigSanitizerUtil;
 use Yandex\Allure\Adapter\Support\AttachmentSupport;
 
@@ -38,11 +37,17 @@ use Yandex\Allure\Adapter\Support\AttachmentSupport;
  *             password: admin_password
  *             browser: chrome
  * ```
+ *
+ * @SuppressWarnings(PHPMD.CouplingBetweenObjects)
  */
-// @codingStandardsIgnoreFile
 class MagentoWebDriver extends WebDriver
 {
     use AttachmentSupport;
+
+    /**
+     * List of known magento loading masks by selector
+     * @var array
+     */
     public static $loadingMasksLocators = [
         '//div[contains(@class, "loading-mask")]',
         '//div[contains(@class, "admin_data-grid-loading-mask")]',
@@ -78,12 +83,42 @@ class MagentoWebDriver extends WebDriver
         LC_MESSAGES => null,
     ];
 
+    /**
+     * Current Test Interface
+     *
+     * @var TestInterface
+     */
+    private $current_test;
+
+    /**
+     * Png image filepath for current test
+     *
+     * @var string
+     */
+    private $pngReport;
+
+    /**
+     * Html filepath for current test
+     *
+     * @var string
+     */
+    private $htmlReport;
+
+    /**
+     * Sanitizes config, then initializes using parent.
+     * @return void
+     */
     public function _initialize()
     {
         $this->config = ConfigSanitizerUtil::sanitizeWebDriverConfig($this->config);
         parent::_initialize();
     }
 
+    /**
+     * Calls parent reset, then re-sanitizes config
+     *
+     * @return void
+     */
     public function _resetConfig()
     {
         parent::_resetConfig();
@@ -125,21 +160,92 @@ class MagentoWebDriver extends WebDriver
     }
 
     /**
-     * Login Magento Admin with given username and password.
+     * Assert that the current webdriver url does not equal the expected string.
      *
-     * @param string $username
-     * @param string $password
+     * @param string $url
      * @return void
      */
-    public function loginAsAdmin($username = null, $password = null)
+    public function dontSeeCurrentUrlEquals($url)
     {
-        $this->amOnPage($this->config['backend_name']);
-        $this->fillField('login[username]', !is_null($username) ? $username : $this->config['username']);
-        $this->fillField('login[password]', !is_null($password) ? $password : $this->config['password']);
-        $this->click('Sign in');
-        $this->waitForPageLoad();
+        $this->assertNotEquals($url, $this->webDriver->getCurrentURL());
+    }
 
-        $this->closeAdminNotification();
+    /**
+     * Assert that the current webdriver url does not match the expected regex.
+     *
+     * @param string $regex
+     * @return void
+     */
+    public function dontSeeCurrentUrlMatches($regex)
+    {
+        $this->assertNotRegExp($regex, $this->webDriver->getCurrentURL());
+    }
+
+    /**
+     * Assert that the current webdriver url does not contain the expected string.
+     *
+     * @param string $needle
+     * @return void
+     */
+    public function dontSeeInCurrentUrl($needle)
+    {
+        $this->assertNotContains($needle, $this->webDriver->getCurrentURL());
+    }
+
+    /**
+     * Return the current webdriver url or return the first matching capture group.
+     *
+     * @param string|null $regex
+     * @return string
+     */
+    public function grabFromCurrentUrl($regex = null)
+    {
+        $fullUrl = $this->webDriver->getCurrentURL();
+        if (!$regex) {
+            return $fullUrl;
+        }
+        $matches = [];
+        $res = preg_match($regex, $fullUrl, $matches);
+        if (!$res) {
+            $this->fail("Couldn't match $regex in " . $fullUrl);
+        }
+        if (!isset($matches[1])) {
+            $this->fail("Nothing to grab. A regex parameter with a capture group is required. Ex: '/(foo)(bar)/'");
+        }
+        return $matches[1];
+    }
+
+    /**
+     * Assert that the current webdriver url equals the expected string.
+     *
+     * @param string $url
+     * @return void
+     */
+    public function seeCurrentUrlEquals($url)
+    {
+        $this->assertEquals($url, $this->webDriver->getCurrentURL());
+    }
+
+    /**
+     * Assert that the current webdriver url matches the expected regex.
+     *
+     * @param string $regex
+     * @return void
+     */
+    public function seeCurrentUrlMatches($regex)
+    {
+        $this->assertRegExp($regex, $this->webDriver->getCurrentURL());
+    }
+
+    /**
+     * Assert that the current webdriver url contains the expected string.
+     *
+     * @param string $needle
+     * @return void
+     */
+    public function seeInCurrentUrl($needle)
+    {
+        $this->assertContains($needle, $this->webDriver->getCurrentURL());
     }
 
     /**
@@ -152,17 +258,19 @@ class MagentoWebDriver extends WebDriver
         // Cheating here for the minute. Still working on the best method to deal with this issue.
         try {
             $this->executeJS("jQuery('.modal-popup').remove(); jQuery('.modals-overlay').remove();");
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+        }
     }
-
 
     /**
      * Search for and Select multiple options from a Magento Multi-Select drop down menu.
      * e.g. The drop down menu you use to assign Products to Categories.
      *
-     * @param $select
-     * @param array $options
-     * @param bool $requireAction
+     * @param string  $select
+     * @param array   $options
+     * @param boolean $requireAction
+     * @throws \Exception
+     * @return void
      */
     public function searchAndMultiSelectOption($select, array $options, $requireAction = false)
     {
@@ -174,14 +282,9 @@ class MagentoWebDriver extends WebDriver
         $this->waitForPageLoad();
         $this->waitForElementVisible($selectDropdown);
         $this->click($selectDropdown);
-        foreach ($options as $option) {
-            $this->waitForPageLoad();
-            $this->fillField($selectSearchText, '');
-            $this->waitForPageLoad();
-            $this->fillField($selectSearchText, $option);
-            $this->waitForPageLoad();
-            $this->click($selectSearchResult);
-        }
+
+        $this->selectMultipleOptions($selectSearchText, $selectSearchResult, $options);
+
         if ($requireAction) {
             $selectAction = $select . ' button[class=action-default]';
             $this->waitForPageLoad();
@@ -190,9 +293,30 @@ class MagentoWebDriver extends WebDriver
     }
 
     /**
+     * Select multiple options from a drop down using a filter and text field to narrow results.
+     *
+     * @param string   $selectSearchTextField
+     * @param string   $selectSearchResult
+     * @param string[] $options
+     * @return void
+     */
+    public function selectMultipleOptions($selectSearchTextField, $selectSearchResult, array $options)
+    {
+        foreach ($options as $option) {
+            $this->waitForPageLoad();
+            $this->fillField($selectSearchTextField, '');
+            $this->waitForPageLoad();
+            $this->fillField($selectSearchTextField, $option);
+            $this->waitForPageLoad();
+            $this->click($selectSearchResult);
+        }
+    }
+
+    /**
      * Wait for all Ajax calls to finish.
      *
-     * @param int $timeout
+     * @param integer $timeout
+     * @return void
      */
     public function waitForAjaxLoad($timeout = null)
     {
@@ -210,7 +334,9 @@ class MagentoWebDriver extends WebDriver
     /**
      * Wait for all JavaScript to finish executing.
      *
-     * @param int $timeout
+     * @param integer $timeout
+     * @throws \Exception
+     * @return void
      */
     public function waitForPageLoad($timeout = null)
     {
@@ -223,10 +349,13 @@ class MagentoWebDriver extends WebDriver
 
     /**
      * Wait for all visible loading masks to disappear. Gets all elements by mask selector, then loops over them.
+     *
+     * @throws \Exception
+     * @return void
      */
     public function waitForLoadingMaskToDisappear()
     {
-        foreach( self::$loadingMasksLocators as $maskLocator) {
+        foreach (self::$loadingMasksLocators as $maskLocator) {
             // Get count of elements found for looping.
             // Elements are NOT useful for interaction, as they cannot be fed to codeception actions.
             $loadingMaskElements = $this->_findElements($maskLocator);
@@ -242,6 +371,7 @@ class MagentoWebDriver extends WebDriver
      * Verify that there are no JavaScript errors in the console.
      *
      * @throws ModuleException
+     * @return void
      */
     public function dontSeeJsError()
     {
@@ -254,7 +384,7 @@ class MagentoWebDriver extends WebDriver
     }
 
     /**
-     * @param float $money
+     * @param float  $money
      * @param string $locale
      * @return array
      */
@@ -274,14 +404,16 @@ class MagentoWebDriver extends WebDriver
      * @param string $floatString
      * @return float
      */
-    public function parseFloat($floatString){
+    public function parseFloat($floatString)
+    {
         $floatString = str_replace(',', '', $floatString);
         return floatval($floatString);
     }
 
     /**
-     * @param int $category
-     * @param string $locale
+     * @param integer $category
+     * @param string  $locale
+     * @return void
      */
     public function mSetLocale(int $category, $locale)
     {
@@ -296,11 +428,12 @@ class MagentoWebDriver extends WebDriver
 
     /**
      * Reset Locale setting.
+     * @return void
      */
     public function mResetLocale()
     {
         foreach (self::$localeAll as $c => $l) {
-            if (!is_null($l)) {
+            if ($l !== null) {
                 setlocale($c, $l);
                 self::$localeAll[$c] = null;
             }
@@ -309,6 +442,7 @@ class MagentoWebDriver extends WebDriver
 
     /**
      * Scroll to the Top of the Page.
+     * @return void
      */
     public function scrollToTopOfPage()
     {
@@ -316,18 +450,61 @@ class MagentoWebDriver extends WebDriver
     }
 
     /**
+     * Takes given $command and executes it against exposed MTF CLI entry point. Returns response from server.
+     * @param string $command
+     * @param string $arguments
+     * @return string
+     */
+    public function magentoCLI($command, $arguments = null)
+    {
+        // trim everything after first '/' in URL after (ex http://magento.instance/<index.php>)
+        preg_match("/.+\/\/[^\/]+\/?/", $this->config['url'], $trimmed);
+        $trimmedUrl = $trimmed[0];
+        $apiURL = $trimmedUrl . ltrim(getenv('MAGENTO_CLI_COMMAND_PATH'), '/');
+
+        $executor = new CurlTransport();
+        $executor->write(
+            $apiURL,
+            [
+                getenv('MAGENTO_CLI_COMMAND_PARAMETER') => $command,
+                'arguments' => $arguments
+            ],
+            CurlInterface::POST,
+            []
+        );
+        $response = $executor->read();
+        $executor->close();
+        return $response;
+    }
+
+    /**
+     * Runs DELETE request to delete a Magento entity against the url given.
+     * @param string $url
+     * @return string
+     */
+    public function deleteEntityByUrl($url)
+    {
+        $executor = new WebapiExecutor(null);
+        $executor->write($url, [], CurlInterface::DELETE, []);
+        $response = $executor->read();
+        $executor->close();
+        return $response;
+    }
+
+    /**
      * Conditional click for an area that should be visible
      *
-     * @param string $selector
-     * @param string $dependentSelector
-     * @param bool $visible
+     * @param string  $selector
+     * @param string  $dependentSelector
+     * @param boolean $visible
      * @throws \Exception
+     * @return void
      */
     public function conditionalClick($selector, $dependentSelector, $visible)
     {
         $el = $this->_findElements($dependentSelector);
         if (sizeof($el) > 1) {
-            throw new \Exception("more than one element matches selector " . $selector);
+            throw new \Exception("more than one element matches selector " . $dependentSelector);
         }
 
         $clickCondition = null;
@@ -346,6 +523,7 @@ class MagentoWebDriver extends WebDriver
      * Clear the given Text Field or Textarea
      *
      * @param string $selector
+     * @return void
      */
     public function clearField($selector)
     {
@@ -357,7 +535,8 @@ class MagentoWebDriver extends WebDriver
      *
      * @param string $selector
      * @param string $attribute
-     * @param $value
+     * @param string $value
+     * @return void
      */
     public function assertElementContainsAttribute($selector, $attribute, $value)
     {
@@ -373,21 +552,121 @@ class MagentoWebDriver extends WebDriver
     }
 
     /**
+     * Sets current test to the given test, and resets test failure artifacts to null
+     * @param TestInterface $test
+     * @return void
+     */
+    public function _before(TestInterface $test)
+    {
+        $this->current_test = $test;
+        $this->htmlReport = null;
+        $this->pngReport = null;
+
+        parent::_before($test);
+    }
+
+    /**
+     * Override for codeception's default dragAndDrop to include offset options.
+     * @param string  $source
+     * @param string  $target
+     * @param integer $xOffset
+     * @param integer $yOffset
+     * @return void
+     */
+    public function dragAndDrop($source, $target, $xOffset = null, $yOffset = null)
+    {
+        if ($xOffset !== null || $yOffset !== null) {
+            $snodes = $this->matchFirstOrFail($this->baseElement, $source);
+            $tnodes = $this->matchFirstOrFail($this->baseElement, $target);
+
+            $targetX = intval($tnodes->getLocation()->getX() + $xOffset);
+            $targetY = intval($tnodes->getLocation()->getY() + $yOffset);
+
+            $travelX = intval($targetX - $snodes->getLocation()->getX());
+            $travelY = intval($targetY - $snodes->getLocation()->getY());
+
+            $action = new WebDriverActions($this->webDriver);
+            $action->moveToElement($snodes)->perform();
+            $action->clickAndHold($snodes)->perform();
+            $action->moveByOffset($travelX, $travelY)->perform();
+            $action->release()->perform();
+        } else {
+            parent::dragAndDrop($source, $target);
+        }
+    }
+
+    /**
+     * Function used to fill sensitive crednetials with user data, data is decrypted immediately prior to fill to avoid
+     * exposure in console or log.
+     *
+     * @param string $field
+     * @param string $value
+     * @return void
+     */
+    public function fillSecretField($field, $value)
+    {
+        // to protect any secrets from being printed to console the values are executed only at the webdriver level as a
+        // decrypted value
+
+        $decryptedValue = CredentialStore::getInstance()->decryptSecretValue($value);
+        $this->fillField($field, $decryptedValue);
+    }
+
+    /**
      * Override for _failed method in Codeception method. Adds png and html attachments to allure report
      * following parent execution of test failure processing.
+     *
      * @param TestInterface $test
-     * @param \Exception $fail
+     * @param \Exception    $fail
+     * @return void
      */
     public function _failed(TestInterface $test, $fail)
     {
-        parent::_failed($test, $fail);
+        $this->debugWebDriverLogs($test);
 
-        // Reconstruct file naming from codeception method
-        $filename = preg_replace('~\W~', '.', Descriptor::getTestSignature($test));
+        if ($this->pngReport === null && $this->htmlReport === null) {
+            $this->saveScreenshot();
+        }
+
+        if ($this->current_test == null) {
+            throw new \RuntimeException("Suite condition failure: \n" . $fail->getMessage());
+        }
+
+        $this->addAttachment($this->pngReport, $test->getMetadata()->getName() . '.png', 'image/png');
+        $this->addAttachment($this->htmlReport, $test->getMetadata()->getName() . '.html', 'text/html');
+
+        $this->debug("Failure due to : {$fail->getMessage()}");
+        $this->debug("Screenshot saved to {$this->pngReport}");
+        $this->debug("Html saved to {$this->htmlReport}");
+    }
+
+    /**
+     * Function which saves a screenshot of the current stat of the browser
+     * @return void
+     */
+    public function saveScreenshot()
+    {
+        $testDescription = "unknown." . uniqid();
+        if ($this->current_test != null) {
+            $testDescription = Descriptor::getTestSignature($this->current_test);
+        }
+
+        $filename = preg_replace('~\W~', '.', $testDescription);
         $outputDir = codecept_output_dir();
-        $pngReport = $outputDir . mb_strcut($filename, 0, 245, 'utf-8') . '.fail.png';
-        $htmlReport = $outputDir . mb_strcut($filename, 0, 244, 'utf-8') . '.fail.html';
-        $this->addAttachment($pngReport, $test->getMetadata()->getName() . '.png', 'image/png');
-        $this->addAttachment($htmlReport, $test->getMetadata()->getName() . '.html', 'text/html');
+        $this->_saveScreenshot($this->pngReport = $outputDir . mb_strcut($filename, 0, 245, 'utf-8') . '.fail.png');
+        $this->_savePageSource($this->htmlReport = $outputDir . mb_strcut($filename, 0, 244, 'utf-8') . '.fail.html');
+    }
+
+    /**
+     * Go to a page and wait for ajax requests to finish
+     *
+     * @param string $page
+     * @throws \Exception
+     * @return void
+     */
+    public function amOnPage($page)
+    {
+        parent::amOnPage($page);
+        $this->waitForPageLoad();
     }
 }

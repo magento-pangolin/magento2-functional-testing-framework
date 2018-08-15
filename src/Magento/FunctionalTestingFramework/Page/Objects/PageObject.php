@@ -6,7 +6,7 @@
 
 namespace Magento\FunctionalTestingFramework\Page\Objects;
 
-
+use Magento\FunctionalTestingFramework\Exceptions\XmlException;
 use Magento\FunctionalTestingFramework\Page\Handlers\SectionObjectHandler;
 
 /**
@@ -14,6 +14,8 @@ use Magento\FunctionalTestingFramework\Page\Handlers\SectionObjectHandler;
  */
 class PageObject
 {
+    const ADMIN_AREA = 'admin';
+
     /**
      * Page name
      *
@@ -50,20 +52,29 @@ class PageObject
     private $sectionNames = [];
 
     /**
-     * PageObject constructor.
-     * @param string $name
-     * @param string $url
-     * @param string $module
-     * @param array $sections
-     * @param bool $parameterized
+     * String identifying the area the page belongs to
+     *
+     * @var string
      */
-    public function __construct($name, $url, $module, $sections, $parameterized)
+    private $area;
+
+    /**
+     * PageObject constructor.
+     * @param string  $name
+     * @param string  $url
+     * @param string  $module
+     * @param array   $sections
+     * @param boolean $parameterized
+     * @param string  $area
+     */
+    public function __construct($name, $url, $module, $sections, $parameterized, $area)
     {
         $this->name = $name;
         $this->url = $url;
         $this->module = $module;
         $this->sectionNames = $sections;
         $this->parameterized = $parameterized;
+        $this->area = $area;
     }
 
     /**
@@ -97,6 +108,16 @@ class PageObject
     }
 
     /**
+     * Getter for Page Area
+     *
+     * @return string
+     */
+    public function getArea()
+    {
+        return $this->area;
+    }
+
+    /**
      * Getter for Section Names
      *
      * @return array
@@ -122,6 +143,7 @@ class PageObject
      *
      * @param string $sectionName
      * @return SectionObject | null
+     * @throws XmlException
      */
     public function getSection($sectionName)
     {
@@ -135,9 +157,8 @@ class PageObject
     /**
      * Determines if the page's url is parameterized. Based on $parameterized property.
      *
-     * @return bool
+     * @return boolean
      */
-
     public function isParameterized()
     {
         return $this->parameterized;

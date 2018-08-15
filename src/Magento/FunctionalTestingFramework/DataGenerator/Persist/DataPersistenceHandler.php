@@ -8,6 +8,7 @@ namespace Magento\FunctionalTestingFramework\DataGenerator\Persist;
 
 use Magento\FunctionalTestingFramework\DataGenerator\Objects\EntityDataObject;
 use Magento\FunctionalTestingFramework\DataGenerator\Handlers\DataObjectHandler;
+use Magento\FunctionalTestingFramework\Exceptions\TestFrameworkException;
 
 /**
  * Class DataPersistenceHandler
@@ -45,12 +46,25 @@ class DataPersistenceHandler
      * DataPersistenceHandler constructor.
      *
      * @param EntityDataObject $entityObject
-     * @param array $dependentObjects
+     * @param array            $dependentObjects
+     * @param array            $customFields
      */
-    public function __construct($entityObject, $dependentObjects = [])
+    public function __construct($entityObject, $dependentObjects = [], $customFields = [])
     {
-        $this->entityObject = clone $entityObject;
-        $this->storeCode = 'default';
+        // merge any custom fields into a new EntityDataObject for the persistence handler
+        if (!empty($customFields)) {
+            $this->entityObject = new EntityDataObject(
+                $entityObject->getName(),
+                $entityObject->getType(),
+                array_merge($entityObject->getAllData(), $customFields),
+                $entityObject->getLinkedEntities(),
+                $this->stripCustomFieldsFromUniquenessData($entityObject->getUniquenessData(), $customFields),
+                $entityObject->getVarReferences()
+            );
+        } else {
+            $this->entityObject = clone $entityObject;
+        }
+        $this->storeCode = null;
 
         foreach ($dependentObjects as $dependentObject) {
             $this->dependentObjects[] = $dependentObject->getCreatedObject();
@@ -62,6 +76,7 @@ class DataPersistenceHandler
      *
      * @param string $storeCode
      * @return void
+     * @throws TestFrameworkException
      */
     public function createEntity($storeCode = null)
     {
@@ -82,17 +97,13 @@ class DataPersistenceHandler
      * Function which executes a put request based on specific operation metadata.
      *
      * @param string $updateDataName
-     * @param array $updateDependentObjects
-     * @param string $storeCode
+     * @param array  $updateDependentObjects
      * @return void
+     * @throws TestFrameworkException
+     * @throws \Exception
      */
-
-    public function updateEntity($updateDataName, $updateDependentObjects = [], $storeCode = null)
+    public function updateEntity($updateDataName, $updateDependentObjects = [])
     {
-        if (!empty($storeCode)) {
-            $this->storeCode = $storeCode;
-        }
-
         foreach ($updateDependentObjects as $dependentObject) {
             $this->dependentObjects[] = $dependentObject->getCreatedObject();
         }
@@ -111,10 +122,10 @@ class DataPersistenceHandler
      * Function which executes a get request on specific operation metadata.
      *
      * @param integer|null $index
-     * @param string $storeCode
+     * @param string       $storeCode
      * @return void
+     * @throws TestFrameworkException
      */
-
     public function getEntity($index = null, $storeCode = null)
     {
         if (!empty($storeCode)) {
@@ -133,14 +144,11 @@ class DataPersistenceHandler
     /**
      * Function which executes a delete request based on specific operation metadata
      *
-     * @param string $storeCode
      * @return void
+     * @throws TestFrameworkException
      */
-    public function deleteEntity($storeCode = null)
+    public function deleteEntity()
     {
-        if (!empty($storeCode)) {
-            $this->storeCode = $storeCode;
-        }
         $curlHandler = new CurlHandler('delete', $this->createdObject, $this->storeCode);
         $curlHandler->executeRequest($this->dependentObjects);
     }
@@ -159,6 +167,7 @@ class DataPersistenceHandler
      * Returns a specific data value based on the CreatedObject's definition.
      * @param string $dataName
      * @return string
+     * @throws TestFrameworkException
      */
     public function getCreatedDataByName($dataName)
     {
@@ -170,8 +179,8 @@ class DataPersistenceHandler
      *
      * @param string|array $response
      * @param integer|null $index
-     * @param array $requestDataArray
-     * @param bool $isJson
+     * @param array        $requestDataArray
+     * @param boolean      $isJson
      * @return void
      */
     private function setCreatedObject($response, $index, $requestDataArray, $isJson)
@@ -182,15 +191,15 @@ class DataPersistenceHandler
                 $responseData = $responseData[$index];
             }
             if (is_array($responseData)) {
-                $persistedData = $this->convertToFlatArray(array_merge($requestDataArray, $responseData));
+                $persistedData = $this->convertToFlatArray(array_merge(
+                    $requestDataArray,
+                    $this->convertCustomAttributesArray($responseData)
+                ));
             } else {
-                $persistedData = $requestDataArray;
+                $persistedData = $this->convertToFlatArray(array_merge($requestDataArray, ['return' => $responseData]));
             }
         } else {
-            $persistedData = array_merge(
-                $this->convertToFlatArray($requestDataArray),
-                ['return' => $response]
-            );
+            $persistedData = array_merge($this->convertToFlatArray($requestDataArray), ['return' => $response]);
         }
 
         $this->createdObject = new EntityDataObject(
@@ -205,7 +214,7 @@ class DataPersistenceHandler
     /**
      * Convert an multi-dimensional array to flat array.
      *
-     * @param array $arrayIn
+     * @param array  $arrayIn
      * @param string $rootKey
      * @return array
      */
@@ -227,5 +236,63 @@ class DataPersistenceHandler
             }
         }
         return $arrayOut;
+    }
+
+    /**
+     * Convert custom_attributes array from
+     * e.g.
+     * 'custom_attributes' => [
+     *      0 => [
+     *          'attribute_code' => 'code1',
+     *          'value' => 'value1',
+     *      ],
+     *      1 => [
+     *          'attribute_code' => 'code2',
+     *          'value' => 'value2',
+     *      ],
+     *  ]
+     *
+     * To
+     *
+     * 'custom_attributes' => [
+     *      'code1' => 'value1',
+     *      'code2' => 'value2',
+     *  ]
+     *
+     * @param array $arrayIn
+     * @return array
+     */
+    private function convertCustomAttributesArray($arrayIn)
+    {
+        $keys = ['custom_attributes'];
+        foreach ($keys as $key) {
+            if (!array_key_exists($key, $arrayIn)) {
+                continue;
+            }
+            $arrayCopy = $arrayIn[$key];
+            foreach ($arrayCopy as $index => $attributes) {
+                $arrayIn[$key][$attributes['attribute_code']] = $attributes['value'];
+            }
+        }
+        return $arrayIn;
+    }
+
+    /**
+     * Function to strip out any overwritten custom field uniqueness data. Takes the uniqueness array and the
+     * customFields from the user and unsets any intersections.
+     *
+     * @param array $uniquenessData
+     * @param array $customFields
+     * @return array
+     */
+    private function stripCustomFieldsFromUniquenessData($uniquenessData, $customFields)
+    {
+        $newUniquenessArray = $uniquenessData;
+        $intersectingKeys = array_intersect_key($uniquenessData, $customFields);
+        foreach ($intersectingKeys as $customFieldKey => $customFieldValue) {
+            unset($newUniquenessArray[$customFieldKey]);
+        }
+
+        return $newUniquenessArray;
     }
 }

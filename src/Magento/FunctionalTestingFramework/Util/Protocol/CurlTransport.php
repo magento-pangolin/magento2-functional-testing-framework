@@ -92,8 +92,8 @@ class CurlTransport implements CurlInterface
     /**
      * Add additional option to cURL.
      *
-     * @param int $option
-     * @param int|string|bool|array $value
+     * @param integer                      $option
+     * @param integer|string|boolean|array $value
      * @return $this
      */
     public function addOption($option, $value)
@@ -117,10 +117,10 @@ class CurlTransport implements CurlInterface
     /**
      * Send request to the remote server.
      *
-     * @param string $url
+     * @param string       $url
      * @param array|string $body
-     * @param string $method
-     * @param array $headers
+     * @param string       $method
+     * @param array        $headers
      * @return void
      * @throws TestFrameworkException
      */
@@ -134,6 +134,7 @@ class CurlTransport implements CurlInterface
             CURLOPT_COOKIEFILE => '',
             CURLOPT_HTTPHEADER => $headers,
             CURLOPT_SSL_VERIFYPEER => false,
+            CURLOPT_SSL_VERIFYHOST => false,
         ];
         switch ($method) {
             case CurlInterface::POST:
@@ -207,7 +208,7 @@ class CurlTransport implements CurlInterface
     /**
      * Get last error number.
      *
-     * @return int
+     * @return integer
      */
     public function getErrno()
     {
@@ -227,7 +228,7 @@ class CurlTransport implements CurlInterface
     /**
      * Get information regarding a specific transfer.
      *
-     * @param int $opt CURLINFO option
+     * @param integer $opt CURLINFO option.
      * @return string|array
      */
     public function getInfo($opt = 0)
@@ -277,7 +278,7 @@ class CurlTransport implements CurlInterface
      * Extract the response code from a response string.
      *
      * @param string $responseStr
-     * @return int
+     * @return integer
      */
     public static function extractCode($responseStr)
     {

@@ -10,6 +10,7 @@ use Magento\FunctionalTestingFramework\ObjectManager\ObjectHandlerInterface;
 use Magento\FunctionalTestingFramework\ObjectManagerFactory;
 use Magento\FunctionalTestingFramework\Page\Objects\PageObject;
 use Magento\FunctionalTestingFramework\XmlParser\PageParser;
+use Magento\FunctionalTestingFramework\Exceptions\XmlException;
 
 class PageObjectHandler implements ObjectHandlerInterface
 {
@@ -18,6 +19,8 @@ class PageObjectHandler implements ObjectHandlerInterface
     const URL = 'url';
     const MODULE = 'module';
     const PARAMETERIZED = 'parameterized';
+    const AREA = 'area';
+    const NAME_BLACKLIST_ERROR_MSG = "Page names cannot contain non alphanumeric characters.\tPage='%s'";
 
     /**
      * The singleton instance of this class
@@ -35,6 +38,8 @@ class PageObjectHandler implements ObjectHandlerInterface
 
     /**
      * Private constructor
+     *
+     * @throws XmlException
      */
     private function __construct()
     {
@@ -48,11 +53,22 @@ class PageObjectHandler implements ObjectHandlerInterface
         }
 
         foreach ($parserOutput as $pageName => $pageData) {
+            if (preg_match('/[^a-zA-Z0-9_]/', $pageName)) {
+                throw new XmlException(sprintf(self::NAME_BLACKLIST_ERROR_MSG, $pageName));
+            }
+            $area = $pageData[self::AREA];
             $url = $pageData[self::URL];
+
+            if ($area == 'admin') {
+                $url = ltrim($url, "/");
+            }
+
             $module = $pageData[self::MODULE];
-            $sectionNames = array_keys($pageData[self::SECTION]);
+            $sectionNames = array_keys($pageData[self::SECTION] ?? []);
             $parameterized = $pageData[self::PARAMETERIZED] ?? false;
-            $this->pageObjects[$pageName] = new PageObject($pageName, $url, $module, $sectionNames, $parameterized);
+
+            $this->pageObjects[$pageName] =
+                new PageObject($pageName, $url, $module, $sectionNames, $parameterized, $area);
         }
     }
 
@@ -60,6 +76,7 @@ class PageObjectHandler implements ObjectHandlerInterface
      * Singleton method to return PageObjectHandler.
      *
      * @return PageObjectHandler
+     * @throws XmlException
      */
     public static function getInstance()
     {

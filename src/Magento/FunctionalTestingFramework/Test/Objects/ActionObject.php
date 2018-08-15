@@ -5,29 +5,67 @@
  */
 namespace Magento\FunctionalTestingFramework\Test\Objects;
 
+use Magento\FunctionalTestingFramework\Config\MftfApplicationConfig;
 use Magento\FunctionalTestingFramework\DataGenerator\Handlers\DataObjectHandler;
 use Magento\FunctionalTestingFramework\DataGenerator\Objects\EntityDataObject;
+use Magento\FunctionalTestingFramework\Exceptions\XmlException;
 use Magento\FunctionalTestingFramework\ObjectManager\ObjectHandlerInterface;
 use Magento\FunctionalTestingFramework\Page\Objects\PageObject;
 use Magento\FunctionalTestingFramework\Page\Objects\SectionObject;
 use Magento\FunctionalTestingFramework\Page\Handlers\PageObjectHandler;
 use Magento\FunctionalTestingFramework\Page\Handlers\SectionObjectHandler;
 use Magento\FunctionalTestingFramework\Exceptions\TestReferenceException;
+use Magento\FunctionalTestingFramework\Util\Logger\LoggingUtil;
 
 /**
  * Class ActionObject
  */
 class ActionObject
 {
-    const DATA_ENABLED_ATTRIBUTES = ["userInput", "parameterArray"];
-    const SELECTOR_ENABLED_ATTRIBUTES = ['selector', 'dependentSelector', "selector1", "selector2"];
+    const __ENV = "_ENV";
+    const __CREDS = "_CREDS";
+    const RUNTIME_REFERENCES = [
+        self::__ENV,
+        self::__CREDS
+    ];
+
+    const DATA_ENABLED_ATTRIBUTES = [
+        "userInput",
+        "parameterArray",
+        "expected",
+        "actual",
+        "x",
+        "y",
+        "expectedResult",
+        "actualResult",
+        "command",
+        "regex",
+        "date",
+        "format"
+    ];
+    const SELECTOR_ENABLED_ATTRIBUTES = [
+        'selector',
+        'dependentSelector',
+        "selector1",
+        "selector2",
+        "function",
+        'filterSelector',
+        'optionSelector',
+        "command"
+    ];
+    const OLD_ASSERTION_ATTRIBUTES = ["expected", "expectedType", "actual", "actualType"];
+    const ASSERTION_ATTRIBUTES = ["expectedResult" => "expected", "actualResult" => "actual"];
+    const ASSERTION_TYPE_ATTRIBUTE = "type";
+    const ASSERTION_VALUE_ATTRIBUTE = "value";
+    const DELETE_DATA_MUTUAL_EXCLUSIVE_ATTRIBUTES = ["url", "createDataKey"];
+    const EXTERNAL_URL_AREA_INVALID_ACTIONS = ['amOnPage'];
+    const FUNCTION_CLOSURE_ACTIONS = ['waitForElementChange', 'performOn'];
     const MERGE_ACTION_ORDER_AFTER = 'after';
     const MERGE_ACTION_ORDER_BEFORE = 'before';
     const ACTION_ATTRIBUTE_URL = 'url';
     const ACTION_ATTRIBUTE_SELECTOR = 'selector';
     const ACTION_ATTRIBUTE_VARIABLE_REGEX_PARAMETER = '/\(.+\)/';
-    const ACTION_ATTRIBUTE_VARIABLE_REGEX_PATTERN = '/{{[\w.\[\]()\',$ ]+}}/';
-    const ACTION_ATTRIBUTE_VARIABLE_REGEX_PATTERN_WITH_PARAMS= '/{{[\w]+\.[\w]+\([\w ,.\'{$}]+\)}}/';
+    const ACTION_ATTRIBUTE_VARIABLE_REGEX_PATTERN = '/({{[\w]+\.[\w\[\]]+}})|({{[\w]+\.[\w]+\((?(?!}}).)+\)}})/';
 
     /**
      * The unique identifier for the action
@@ -79,25 +117,35 @@ class ActionObject
     private $timeout;
 
     /**
+     * An array with items containing information of the origin of this action.
+     *
+     * @var array
+     */
+    private $actionOrigin = [];
+
+    /**
      * ActionObject constructor.
      *
-     * @param string $stepKey
-     * @param string $type
-     * @param array $actionAttributes
+     * @param string      $stepKey
+     * @param string      $type
+     * @param array       $actionAttributes
      * @param string|null $linkedAction
-     * @param string $order
+     * @param string      $order
+     * @param array       $actionOrigin
      */
     public function __construct(
         $stepKey,
         $type,
         $actionAttributes,
         $linkedAction = null,
-        $order = ActionObject::MERGE_ACTION_ORDER_BEFORE
+        $order = ActionObject::MERGE_ACTION_ORDER_BEFORE,
+        $actionOrigin = null
     ) {
         $this->stepKey = $stepKey;
         $this->type = $type;
         $this->actionAttributes = $actionAttributes;
         $this->linkedAction = $linkedAction;
+        $this->actionOrigin = $actionOrigin;
 
         if ($order == ActionObject::MERGE_ACTION_ORDER_AFTER) {
             $this->orderOffset = 1;
@@ -122,6 +170,16 @@ class ActionObject
     public function getType()
     {
         return $this->type;
+    }
+
+    /**
+     * Getter for actionOrigin
+     *
+     * @return string
+     */
+    public function getActionOrigin()
+    {
+        return $this->actionOrigin;
     }
 
     /**
@@ -152,7 +210,7 @@ class ActionObject
     /**
      * This function returns the int property orderOffset, describing before or after for a merge.
      *
-     * @return int
+     * @return integer
      */
     public function getOrderOffset()
     {
@@ -163,7 +221,7 @@ class ActionObject
      * This function returns the int property timeout, this can be set as a result of the use of a section element
      * requiring a wait.
      *
-     * @return int
+     * @return integer
      */
     public function getTimeout()
     {
@@ -173,7 +231,7 @@ class ActionObject
     /**
      * Set the timeout value.
      *
-     * @param int $timeout
+     * @param integer $timeout
      * @return void
      */
     public function setTimeout($timeout)
@@ -188,13 +246,95 @@ class ActionObject
      *   userInput
      *
      * @return void
+     * @throws TestReferenceException
+     * @throws XmlException
      */
     public function resolveReferences()
     {
         if (empty($this->resolvedCustomAttributes)) {
+            $this->trimAssertionAttributes();
             $this->resolveSelectorReferenceAndTimeout();
             $this->resolveUrlReference();
             $this->resolveDataInputReferences();
+            if ($this->getType() == "deleteData") {
+                $this->validateMutuallyExclusiveAttributes(self::DELETE_DATA_MUTUAL_EXCLUSIVE_ATTRIBUTES);
+            }
+        }
+    }
+
+    /**
+     * Flattens expectedResult/actualResults/array nested elements, if necessary.
+     * e.g. expectedResults[] -> ["expectedType" => "string", "expected" => "value"]
+     * Warns user if they are using old Assertion syntax.
+     *
+     * @return void
+     * @throws TestReferenceException
+     */
+    public function trimAssertionAttributes()
+    {
+        $actionAttributeKeys = array_keys($this->actionAttributes);
+
+        /** MQE-683 DEPRECATE OLD METHOD HERE
+         * Checks if action has any of the old, single line attributes
+         * Throws a warning and returns, assuming old syntax is used.
+         */
+        $oldAttributes = array_intersect($actionAttributeKeys, ActionObject::OLD_ASSERTION_ATTRIBUTES);
+        if (!empty($oldAttributes)) {
+            $appConfig = MftfApplicationConfig::getConfig();
+            if ($appConfig->getPhase() == MftfApplicationConfig::GENERATION_PHASE && $appConfig->verboseEnabled()) {
+                LoggingUtil::getInstance()->getLogger(ActionObject::class)->deprecation(
+                    "use of one line Assertion actions will be deprecated in MFTF 3.0.0, please use nested syntax",
+                    ["action" => $this->type, "stepKey" => $this->stepKey]
+                );
+            }
+            return;
+        }
+
+        $relevantKeys = array_keys(ActionObject::ASSERTION_ATTRIBUTES);
+        $relevantAssertionAttributes = array_intersect($actionAttributeKeys, $relevantKeys);
+
+        if (empty($relevantAssertionAttributes)) {
+            return;
+        }
+
+        $this->validateAssertionSchema($relevantAssertionAttributes);
+
+        // Flatten nested Elements's type and value into key=>value entries
+        foreach ($this->actionAttributes as $key => $subAttributes) {
+            if (in_array($key, $relevantKeys)) {
+                $prefix = ActionObject::ASSERTION_ATTRIBUTES[$key];
+                $this->actionAttributes[$prefix . ucfirst(ActionObject::ASSERTION_TYPE_ATTRIBUTE)] =
+                    $subAttributes[ActionObject::ASSERTION_TYPE_ATTRIBUTE];
+                $this->actionAttributes[$prefix] =
+                    $subAttributes[ActionObject::ASSERTION_VALUE_ATTRIBUTE];
+                unset($this->actionAttributes[$key]);
+            }
+        }
+    }
+
+    /**
+     * Validates that the given assertion attributes have valid schema according to nested assertion syntax.
+     * @param array $attributes
+     * @return void
+     * @throws TestReferenceException
+     */
+    private function validateAssertionSchema($attributes)
+    {
+        /** MQE-683 DEPRECATE OLD METHOD HERE
+         * Unnecessary validation, only needed for backwards compatibility
+         */
+        $singleChildTypes = ['assertEmpty', 'assertFalse', 'assertFileExists', 'assertFileNotExists',
+            'assertIsEmpty', 'assertNotEmpty', 'assertNotNull', 'assertNull', 'assertTrue',
+            'assertElementContainsAttribute'];
+
+        if (!in_array($this->type, $singleChildTypes)) {
+            if (!in_array('expectedResult', $attributes)
+                || !in_array('actualResult', $attributes)) {
+                throw new TestReferenceException(
+                    "{$this->type} must have both an expectedResult & actualResult defined (stepKey: {$this->stepKey})",
+                    ["action" => $this->type, "stepKey" => $this->stepKey]
+                );
+            }
         }
     }
 
@@ -204,6 +344,8 @@ class ActionObject
      * e.g. {{SomeSectionName.ElementName}} becomes #login-button
      *
      * @return void
+     * @throws XmlException
+     * @throws \Exception
      */
     private function resolveSelectorReferenceAndTimeout()
     {
@@ -230,6 +372,8 @@ class ActionObject
      * e.g. {{SomePageName}} becomes http://localhost:76543/some/url
      *
      * @return void
+     * @throws TestReferenceException
+     * @throws XmlException
      */
     private function resolveUrlReference()
     {
@@ -242,6 +386,14 @@ class ActionObject
         $replacement = $this->findAndReplaceReferences(PageObjectHandler::getInstance(), $url);
         if ($replacement) {
             $this->resolvedCustomAttributes[ActionObject::ACTION_ATTRIBUTE_URL] = $replacement;
+            $allPages = PageObjectHandler::getInstance()->getAllObjects();
+            if ($replacement === $url && array_key_exists(trim($url, "{}"), $allPages)
+            ) {
+                LoggingUtil::getInstance()->getLogger(ActionObject::class)->warning(
+                    "page url attribute not found and is required",
+                    ["action" => $this->type, "url" => $url, "stepKey" => $this->stepKey]
+                );
+            }
         }
     }
 
@@ -251,6 +403,8 @@ class ActionObject
      * e.g. {{CustomerEntityFoo.FirstName}} becomes Jerry
      *
      * @return void
+     * @throws TestReferenceException
+     * @throws \Exception
      */
     private function resolveDataInputReferences()
     {
@@ -264,7 +418,7 @@ class ActionObject
         foreach ($relevantDataAttributes as $dataAttribute) {
             $varInput = $this->actionAttributes[$dataAttribute];
             $replacement = $this->findAndReplaceReferences(DataObjectHandler::getInstance(), $varInput);
-            if ($replacement) {
+            if ($replacement !== null) {
                 $this->resolvedCustomAttributes[$dataAttribute] = $replacement;
             }
         }
@@ -289,7 +443,7 @@ class ActionObject
     }
 
     /**
-     * Returns an array containing all parameters found inside () block of test input.
+     * Returns an array containing all parameters found inside () block of test input. Expected delimiter is ', '.
      * Returns null if no parameters were found.
      *
      * @param string $reference
@@ -297,10 +451,29 @@ class ActionObject
      */
     private function stripAndReturnParameters($reference)
     {
+        // 'string', or 'string,!@#$%^&*()_+, '
+        $literalParametersRegex = "/'[^']+'/";
+        $postCleanupDelimiter = "::::";
+
         preg_match(ActionObject::ACTION_ATTRIBUTE_VARIABLE_REGEX_PARAMETER, $reference, $matches);
         if (!empty($matches)) {
-            $strippedReference = str_replace(')', '', str_replace('(', '', $matches[0]));
-            return explode(',', $strippedReference);
+            $strippedReference = ltrim(rtrim($matches[0], ")"), "(");
+
+            // Pull out all 'string' references, as they can contain 'string with , comma in it'
+            preg_match_all($literalParametersRegex, $strippedReference, $literalReferences);
+            $strippedReference = preg_replace($literalParametersRegex, '&&stringReference&&', $strippedReference);
+
+            // Sanitize 'string, data.field,$persisted.field$' => 'string::::data.field::::$persisted.field$'
+            $strippedReference = preg_replace('/,/', ', ', $strippedReference);
+            $strippedReference = str_replace(',', $postCleanupDelimiter, $strippedReference);
+            $strippedReference = str_replace(' ', '', $strippedReference);
+
+            // Replace string references into string, needed to keep sequence
+            foreach ($literalReferences[0] as $key => $value) {
+                $strippedReference = preg_replace('/&&stringReference&&/', $value, $strippedReference, 1);
+            }
+
+            return explode($postCleanupDelimiter, $strippedReference);
         }
         return null;
     }
@@ -309,14 +482,17 @@ class ActionObject
      * Return a string based on a reference to a page, section, or data field (e.g. {{foo.ref}} resolves to 'data')
      *
      * @param ObjectHandlerInterface $objectHandler
-     * @param string $inputString
+     * @param string                 $inputString
      * @return string | null
+     * @throws TestReferenceException
      * @throws \Exception
+     *
+     * @SuppressWarnings(PHPMD.CyclomaticComplexity)
      */
     private function findAndReplaceReferences($objectHandler, $inputString)
     {
         //look for parameter area, if so use different regex
-        $regex = $this->resolveRegexPatternForReference($inputString);
+        $regex = ActionObject::ACTION_ATTRIBUTE_VARIABLE_REGEX_PATTERN;
 
         preg_match_all($regex, $inputString, $matches);
 
@@ -329,49 +505,89 @@ class ActionObject
 
             $obj = $objectHandler->getObject($objName);
 
-            // specify behavior depending on field
-            switch (get_class($obj)) {
-                case PageObject::class:
-                    $replacement = $obj->getUrl();
-                    $parameterized = $obj->isParameterized();
-                    break;
-                case SectionObject::class:
-                    list(,$objField) = $this->stripAndSplitReference($match);
-                    if ($obj->getElement($objField) == null) {
-                        throw new TestReferenceException("Could not resolve entity reference " . $inputString);
-                    }
-                    $parameterized = $obj->getElement($objField)->isParameterized();
-                    $replacement = $obj->getElement($objField)->getPrioritizedSelector();
-                    $this->setTimeout($obj->getElement($objField)->getTimeout());
-                    break;
-                case EntityDataObject::class:
-                    $replacement = $this->resolveEntityDataObjectReference($obj, $match);
-                    break;
+            // Leave runtime references to be replaced in TestGenerator with getter function accessing "VARIABLE"
+            if (in_array($objName, ActionObject::RUNTIME_REFERENCES)) {
+                continue;
             }
 
-            if ($replacement == null && get_class($objectHandler) != DataObjectHandler::class) {
-                return $this->findAndReplaceReferences(DataObjectHandler::getInstance(), $outputString);
-            } elseif ($replacement == null) {
-                throw new TestReferenceException("Could not resolve entity reference " . $inputString);
+            if ($obj == null) {
+                // keep initial values for subsequent logic
+                $replacement = null;
+                $parameterized = false;
+            } elseif (get_class($obj) == PageObject::class) {
+                $this->validateUrlAreaAgainstActionType($obj);
+                $replacement = $obj->getUrl();
+                $parameterized = $obj->isParameterized();
+            } elseif (get_class($obj) == SectionObject::class) {
+                list(,$objField) = $this->stripAndSplitReference($match);
+                if ($obj->getElement($objField) == null) {
+                    throw new TestReferenceException("Could not resolve entity reference", ["input" => $inputString]);
+                }
+                $parameterized = $obj->getElement($objField)->isParameterized();
+                $replacement = $obj->getElement($objField)->getPrioritizedSelector();
+                $this->setTimeout($obj->getElement($objField)->getTimeout());
+            } elseif (get_class($obj) == EntityDataObject::class) {
+                $replacement = $this->resolveEntityDataObjectReference($obj, $match);
+
+                if (is_array($replacement)) {
+                    $replacement = '["' . implode('","', array_map('addSlashes', $replacement)) . '"]';
+                }
             }
 
-            $replacement = $this->resolveParameterization($parameterized, $replacement, $match);
+            if ($replacement === null) {
+                if (get_class($objectHandler) != DataObjectHandler::class) {
+                    return $this->findAndReplaceReferences(DataObjectHandler::getInstance(), $outputString);
+                } else {
+                    throw new TestReferenceException("Could not resolve entity reference", ["input" => $inputString]);
+                }
+            }
+
+            $replacement = $this->resolveParameterization($parameterized, $replacement, $match, $obj);
+
             $outputString = str_replace($match, $replacement, $outputString);
         }
         return $outputString;
     }
 
     /**
-     * Determines whether the given $inputString has (params), and returns the appropriate regex for use in matching.
-     * @param string $inputString
-     * @return string
+     * Validates that the mutually exclusive attributes passed in don't all occur.
+     * @param array $attributes
+     * @return void
+     * @throws TestReferenceException
      */
-    private function resolveRegexPatternForReference($inputString)
+    private function validateMutuallyExclusiveAttributes(array $attributes)
     {
-        if (preg_match(ActionObject::ACTION_ATTRIBUTE_VARIABLE_REGEX_PARAMETER, $inputString) === 1) {
-            return ActionObject::ACTION_ATTRIBUTE_VARIABLE_REGEX_PATTERN_WITH_PARAMS;
-        } else {
-            return ActionObject::ACTION_ATTRIBUTE_VARIABLE_REGEX_PATTERN;
+        $matches = array_intersect($attributes, array_keys($this->getCustomActionAttributes()));
+        if (count($matches) > 1) {
+            throw new TestReferenceException(
+                "Actions of type '{$this->getType()}' must only contain one attribute of types '"
+                . implode("', '", $attributes) . "'",
+                ["type" => $this->getType(), "attributes" => $attributes]
+            );
+        } elseif (count($matches) == 0) {
+            throw new TestReferenceException(
+                "Actions of type '{$this->getType()}' must contain at least one attribute of types '"
+                . implode("', '", $attributes) . "'",
+                ["type" => $this->getType(), "attributes" => $attributes]
+            );
+        }
+    }
+
+    /**
+     * Validates the page objects area 'external' against a list of known incompatible types
+     *
+     * @param PageObject $obj
+     * @return void
+     * @throws TestReferenceException
+     */
+    private function validateUrlAreaAgainstActionType($obj)
+    {
+        if ($obj->getArea() == 'external' &&
+            in_array($this->getType(), self::EXTERNAL_URL_AREA_INVALID_ACTIONS)) {
+            throw new TestReferenceException(
+                "Page of type 'external' is not compatible with action type '{$this->getType()}'",
+                ["type" => $this->getType()]
+            );
         }
     }
 
@@ -400,18 +616,24 @@ class ActionObject
     /**
      * Resolves $replacement parameterization with given conditional.
      * @param boolean $isParameterized
-     * @param string $replacement
-     * @param string $match
+     * @param string  $replacement
+     * @param string  $match
+     * @param object  $object
      * @return string
+     * @throws \Exception
      */
-    private function resolveParameterization($isParameterized, $replacement, $match)
+    private function resolveParameterization($isParameterized, $replacement, $match, $object)
     {
         if ($isParameterized) {
             $parameterList = $this->stripAndReturnParameters($match);
-            return $this->matchParameterReferences($replacement, $parameterList);
+            $resolvedReplacement = $this->matchParameterReferences($replacement, $parameterList);
         } else {
-            return $replacement;
+            $resolvedReplacement = $replacement;
         }
+        if (get_class($object) == PageObject::class && $object->getArea() == PageObject::ADMIN_AREA) {
+            $resolvedReplacement = "/{{_ENV.MAGENTO_BACKEND_NAME}}/" . $resolvedReplacement;
+        }
+        return $resolvedReplacement;
     }
 
     /**
@@ -419,7 +641,7 @@ class ActionObject
      * Parameter list given is also resolved, attempting to match {{data.field}} references.
      *
      * @param string $reference
-     * @param array $parameters
+     * @param array  $parameters
      * @return string
      * @throws \Exception
      */
@@ -437,12 +659,14 @@ class ActionObject
             }
             throw new TestReferenceException(
                 "Parameter Resolution Failed: Not enough parameters given for reference " .
-                $reference . ". Parameters Given: " . $parametersGiven
+                $reference . ". Parameters Given: " . $parametersGiven,
+                ["reference" => $reference, "parametersGiven" => $parametersGiven]
             );
         } elseif (count($varMatches[0]) < count($parameters)) {
             throw new TestReferenceException(
                 "Parameter Resolution Failed: Too many parameters given for reference " .
-                $reference . ". Parameters Given: " . implode(", ", $parameters)
+                $reference . ". Parameters Given: " . implode(", ", $parameters),
+                ["reference" => $reference, "parametersGiven" => $parameters]
             );
         }
 

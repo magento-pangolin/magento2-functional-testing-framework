@@ -5,71 +5,77 @@
  */
 namespace tests\verification\Tests;
 
-use Magento\FunctionalTestingFramework\Test\Handlers\TestObjectHandler;
-use Magento\FunctionalTestingFramework\Util\TestGenerator;
-use PHPUnit\Framework\TestCase;
-use tests\verification\Util\FileDiffUtil;
+use Magento\FunctionalTestingFramework\Exceptions\TestReferenceException;
+use tests\util\MftfTestCase;
 
-class ReferenceReplacementGenerationTest extends TestCase
+class ReferenceReplacementGenerationTest extends MftfTestCase
 {
     const DATA_REPLACEMENT_TEST = 'DataReplacementTest';
     const PERSISTED_REPLACEMENT_TEST = 'PersistedReplacementTest';
     const PAGE_REPLACEMENT_TEST = 'PageReplacementTest';
+    const ADMIN_PAGE_TEST = 'AdminPageTest';
     const SECTION_REPLACEMENT_TEST = 'SectionReplacementTest';
     const RESOURCES_PATH = __DIR__ . '/../Resources';
 
     /**
      * Tests replacement of {{data.key}} references.
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testDataReferenceReplacementCest()
     {
-        $this->runComparisonTest(self::DATA_REPLACEMENT_TEST);
+        $this->generateAndCompareTest(self::DATA_REPLACEMENT_TEST);
     }
 
     /**
      * Tests replacement of $data.key$ references.
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testPersistedeferenceReplacementCest()
     {
-        $this->runComparisonTest(self::PERSISTED_REPLACEMENT_TEST);
+        $this->generateAndCompareTest(self::PERSISTED_REPLACEMENT_TEST);
     }
 
     /**
      * Tests replacement of {{page.url}} references. Includes parameterized urls.
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testPageReferenceReplacementCest()
     {
-        $this->runComparisonTest(self::PAGE_REPLACEMENT_TEST);
+        $this->generateAndCompareTest(self::PAGE_REPLACEMENT_TEST);
+    }
+
+    /**
+     * Tests replacement of {{page.url}} reference for external page and incompatible action
+     */
+    public function testExternalPageBadReference()
+    {
+        $this->expectException(TestReferenceException::class);
+        $this->generateAndCompareTest("ExternalPageTestBadReference");
     }
 
     /**
      * Tests replacement of {{Section.Element}} references. Includes parameterized elements.
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testSectionReferenceReplacementCest()
     {
-        $this->runComparisonTest(self::SECTION_REPLACEMENT_TEST);
+        $this->generateAndCompareTest(self::SECTION_REPLACEMENT_TEST);
     }
 
     /**
-     * Instantiates TestObjectHandler and TestGenerator, then compares given test against flat txt equivalent.
-     * @param string $testName
+     * Tests replacement of all characters into string literal references.
+     * Used to ensure users can input everything but single quotes into 'stringLiteral' in parameterized selectors
      */
-    private function runComparisonTest($testName)
+    public function testCharacterReplacementCest()
     {
-        $testObject = TestObjectHandler::getInstance()->getObject($testName);
-        $test = TestGenerator::getInstance(null, [$testObject]);
-        $test->createAllTestFiles();
-
-        $testFile = $test->getExportDir() .
-            DIRECTORY_SEPARATOR .
-            $testObject->getCodeceptionName() .
-            ".php";
-
-        $this->assertTrue(file_exists($testFile));
-
-        $this->assertFileEquals(
-            self::RESOURCES_PATH . DIRECTORY_SEPARATOR . $testName . ".txt",
-            $testFile
-        );
+        $this->generateAndCompareTest("CharacterReplacementTest");
     }
 }

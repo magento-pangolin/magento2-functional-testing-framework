@@ -7,13 +7,36 @@
 namespace Magento\FunctionalTestingFramework\Test\Objects;
 
 use Magento\FunctionalTestingFramework\Exceptions\TestReferenceException;
+use Magento\FunctionalTestingFramework\Test\Handlers\ActionGroupObjectHandler;
+use Magento\FunctionalTestingFramework\Test\Util\ActionGroupObjectExtractor;
 use Magento\FunctionalTestingFramework\Test\Util\ActionMergeUtil;
+use Magento\FunctionalTestingFramework\Test\Util\ObjectExtension;
 
 /**
  * Class ActionGroupObject
  */
 class ActionGroupObject
 {
+    const ACTION_GROUP_ORIGIN_NAME = "actionGroupName";
+    const ACTION_GROUP_ORIGIN_TEST_REF = "testInvocationRef";
+    const ACTION_GROUP_TYPES = [
+        "executeJS",
+        "magentoCLI",
+        "generateDate",
+        "formatMoney",
+        "deleteData",
+        "getData",
+        "updateData",
+        "createData",
+        "grabAttributeFrom",
+        "grabCookie",
+        "grabFromCurrentUrl",
+        "grabMultiple",
+        "grabPageSource",
+        "grabTextFrom",
+        "grabValueFrom"
+    ];
+
     /**
      * Array of variable-enabled attributes.
      * @var array
@@ -35,20 +58,28 @@ class ActionGroupObject
     private $parsedActions = [];
 
     /**
-     * An array used to store the default entities if the user does not specify any
+     * An array used to store argument names to values
      *
      * @var array
      */
     private $arguments;
 
     /**
+     * String of parent Action Group
+     *
+     * @var string
+     */
+    private $parentActionGroup;
+
+    /**
      * ActionGroupObject constructor.
      *
-     * @param string $name
-     * @param string $arguments
-     * @param array $actions
+     * @param string           $name
+     * @param ArgumentObject[] $arguments
+     * @param array            $actions
+     * @param string           $parentActionGroup
      */
-    public function __construct($name, $arguments, $actions)
+    public function __construct($name, $arguments, $actions, $parentActionGroup)
     {
         $this->varAttributes = array_merge(
             ActionObject::SELECTOR_ENABLED_ATTRIBUTES,
@@ -58,12 +89,13 @@ class ActionGroupObject
         $this->name = $name;
         $this->arguments = $arguments;
         $this->parsedActions = $actions;
+        $this->parentActionGroup = $parentActionGroup;
     }
 
     /**
      * Gets the ordered steps including merged waits
      *
-     * @param array $arguments
+     * @param array  $arguments
      * @param string $actionReferenceKey
      * @return array
      * @throws TestReferenceException
@@ -71,74 +103,90 @@ class ActionGroupObject
     public function getSteps($arguments, $actionReferenceKey)
     {
         $mergeUtil = new ActionMergeUtil($this->name, "ActionGroup");
-        $args = $this->arguments;
-        $emptyArguments = array_keys($args, null, true);
-        if (!empty($emptyArguments) && $arguments !== null) {
-            $diff = array_diff($emptyArguments, array_keys($arguments));
-            if (!empty($diff)) {
-                $error = 'Argument(s) missed (' . implode(", ", $diff) . ') for actionGroup "' . $this->name . '"';
-                throw new TestReferenceException($error);
-            }
-        } elseif (!empty($emptyArguments)) {
-            $error = 'Not enough arguments given for actionGroup "' . $this->name . '"';
-            throw new TestReferenceException($error);
-        }
-        if ($arguments) {
-            $args = array_merge($args, $arguments);
-        }
+
+        $args = $this->resolveArguments($arguments);
 
         return $mergeUtil->resolveActionSteps($this->getResolvedActionsWithArgs($args, $actionReferenceKey), true);
+    }
+
+    /**
+     * Iterates through given $arguments and overrides ActionGroup's argument values, if any are found.
+     * @param array $arguments
+     * @return ArgumentObject[]
+     * @throws TestReferenceException
+     */
+    private function resolveArguments($arguments)
+    {
+        $resolvedArgumentList = [];
+        $emptyArguments = [];
+
+        foreach ($this->arguments as $argumentObj) {
+            if ($arguments !== null && array_key_exists($argumentObj->getName(), $arguments)) {
+                $resolvedArgumentList[] = new ArgumentObject(
+                    $argumentObj->getName(),
+                    $arguments[$argumentObj->getName()],
+                    $argumentObj->getDataType()
+                );
+            } elseif ($argumentObj->getValue() === null) {
+                $emptyArguments[] = $argumentObj->getName();
+            } else {
+                $resolvedArgumentList[] = $argumentObj;
+            }
+        }
+
+        if (!empty($emptyArguments)) {
+            $error = 'Arguments missed (' . implode(", ", $emptyArguments) . ') for actionGroup "' . $this->name . '"';
+            throw new TestReferenceException($error);
+        }
+
+        return $resolvedArgumentList;
     }
 
     /**
      * Function which takes a set of arguments to be appended to an action objects fields returns resulting
      * action objects with proper argument.field references.
      *
-     * @param array $arguments
+     * @param array  $arguments
      * @param string $actionReferenceKey
      * @return array
      */
     private function getResolvedActionsWithArgs($arguments, $actionReferenceKey)
     {
         $resolvedActions = [];
-
-        // $regexPattern match on:   $matches[0] {{section.element(arg.field)}}
-        // $matches[1] = section.element
-        // $matches[2] = arg.field
-        $regexPattern = '/{{([\w.\[\]]+)\(*([\w.$\',\s]+)*\)*}}/';
+        $replacementStepKeys = [];
 
         foreach ($this->parsedActions as $action) {
+            $replacementStepKeys[$action->getStepKey()] = $action->getStepKey() . ucfirst($actionReferenceKey);
             $varAttributes = array_intersect($this->varAttributes, array_keys($action->getCustomActionAttributes()));
+
+            // replace createDataKey attributes inside the action group
+            $resolvedActionAttributes = $this->replaceCreateDataKeys($action, $replacementStepKeys);
+
             $newActionAttributes = [];
 
             if (!empty($varAttributes)) {
-                // 1 check to see if we have pertinent var
-                foreach ($varAttributes as $varAttribute) {
-                    $attributeValue = $action->getCustomActionAttributes()[$varAttribute];
-                    preg_match_all($regexPattern, $attributeValue, $matches);
-                    if (empty($matches[0])) {
-                        continue;
-                    }
+                $newActionAttributes = $this->resolveAttributesWithArguments(
+                    $arguments,
+                    $resolvedActionAttributes
+                );
+            }
 
-                    //get rid of full match {{arg.field(arg.field)}}
-                    array_shift($matches);
-
-                    $newActionAttributes[$varAttribute] = $this->replaceAttributeArguments(
-                        $arguments,
-                        $attributeValue,
-                        $matches
-                    );
-                }
+            // translate 0/1 back to before/after
+            $orderOffset = ActionObject::MERGE_ACTION_ORDER_BEFORE;
+            if ($action->getOrderOffset() === 1) {
+                $orderOffset = ActionObject::MERGE_ACTION_ORDER_AFTER;
             }
 
             // we append the action reference key to any linked action and the action's merge key as the user might
             // use this action group multiple times in the same test.
-            $resolvedActions[$action->getStepKey() . $actionReferenceKey] = new ActionObject(
-                $action->getStepKey() . $actionReferenceKey,
+            $resolvedActions[$action->getStepKey() . ucfirst($actionReferenceKey)] = new ActionObject(
+                $action->getStepKey() . ucfirst($actionReferenceKey),
                 $action->getType(),
-                array_merge($action->getCustomActionAttributes(), $newActionAttributes),
-                $action->getLinkedAction() == null ? null : $action->getLinkedAction() . $actionReferenceKey,
-                $action->getOrderOffset()
+                array_replace_recursive($resolvedActionAttributes, $newActionAttributes),
+                $action->getLinkedAction() == null ? null : $action->getLinkedAction() . ucfirst($actionReferenceKey),
+                $orderOffset,
+                [self::ACTION_GROUP_ORIGIN_NAME => $this->name,
+                    self::ACTION_GROUP_ORIGIN_TEST_REF => $actionReferenceKey]
             );
         }
 
@@ -146,12 +194,54 @@ class ActionGroupObject
     }
 
     /**
+     * Resolves all references to arguments in attributes, and subAttributes.
+     * @param array $arguments
+     * @param array $attributes
+     * @return array
+     */
+    private function resolveAttributesWithArguments($arguments, $attributes)
+    {
+        // $regexPattern match on:   $matches[0] {{section.element(arg.field)}}
+        // $matches[1] = section.element
+        // $matches[2] = arg.field
+        $regexPattern = '/{{([\w.\[\]]+)\(*([\w.$\',\s\[\]]+)*\)*}}/';
+
+        $newActionAttributes = [];
+        foreach ($attributes as $attributeKey => $attributeValue) {
+            if (is_array($attributeValue)) {
+                // attributes with child elements are parsed as an array, need make recursive call to resolve children
+                $newActionAttributes[$attributeKey] = $this->resolveAttributesWithArguments(
+                    $arguments,
+                    $attributeValue
+                );
+                continue;
+            }
+
+            preg_match_all($regexPattern, $attributeValue, $matches);
+
+            if (empty($matches[0])) {
+                continue;
+            }
+
+            //get rid of full match {{arg.field(arg.field)}}
+            array_shift($matches);
+
+            $newActionAttributes[$attributeKey] = $this->replaceAttributeArguments(
+                $arguments,
+                $attributeValue,
+                $matches
+            );
+        }
+        return $newActionAttributes;
+    }
+
+    /**
      * Function that takes an array of replacement arguments, and matches them with args in an actionGroup's attribute.
      * Determines if the replacement arguments are persisted data, and replaces them accordingly.
      *
-     * @param array $arguments
+     * @param array  $arguments
      * @param string $attributeValue
-     * @param array $matches
+     * @param array  $matches
      * @return string
      */
     private function replaceAttributeArguments($arguments, $attributeValue, $matches)
@@ -182,10 +272,10 @@ class ActionGroupObject
     /**
      * Replace attribute arguments in variable.
      *
-     * @param string $variable
-     * @param array $arguments
-     * @param string $attributeValue
-     * @param bool $isInnerArgument
+     * @param string  $variable
+     * @param array   $arguments
+     * @param string  $attributeValue
+     * @param boolean $isInnerArgument
      * @return string
      */
     private function replaceAttributeArgumentInVariable(
@@ -199,17 +289,27 @@ class ActionGroupObject
         // Check if arguments has a mapping for the given variableName
 
         if ($variableName === false) {
-            $variableName = $variable;
+            $variableName = trim($variable, "'");
         }
 
-        if (!array_key_exists($variableName, $arguments)) {
+        $matchedArgument = $this->findArgumentByName($variableName, $arguments);
+        if ($matchedArgument === null) {
             return $attributeValue;
         }
 
-        $isPersisted = strstr($arguments[$variableName], '$');
+        if ($matchedArgument->getDataType() === ArgumentObject::ARGUMENT_DATA_STRING) {
+            return $this->replaceSimpleArgument(
+                $matchedArgument->getResolvedValue($isInnerArgument),
+                $variableName,
+                $attributeValue,
+                $isInnerArgument
+            );
+        }
+
+        $isPersisted = preg_match('/\$[\w.\[\]() ]+\$/', $matchedArgument->getResolvedValue($isInnerArgument));
         if ($isPersisted) {
             return $this->replacePersistedArgument(
-                $arguments[$variableName],
+                $matchedArgument->getResolvedValue($isInnerArgument),
                 $attributeValue,
                 $variable,
                 $variableName,
@@ -218,15 +318,37 @@ class ActionGroupObject
         }
 
         //replace argument ONLY when there is no letters attached before after (ex. category.name vs categoryTreeButton)
-        return preg_replace("/(?<![\w]){$variableName}(?![(\w])/", $arguments[$variableName], $attributeValue);
+        return preg_replace(
+            "/(?<![\w]){$variableName}(?![(\w])/",
+            $matchedArgument->getResolvedValue($isInnerArgument),
+            $attributeValue
+        );
+    }
+
+    /**
+     * Replaces any arguments that were declared as simpleData="true".
+     * Takes in isInnerArgument to determine what kind of replacement to expect: {{data}} vs section.element(data)
+     * @param string  $argumentValue
+     * @param string  $variableName
+     * @param string  $attributeValue
+     * @param boolean $isInnerArgument
+     * @return string
+     */
+    private function replaceSimpleArgument($argumentValue, $variableName, $attributeValue, $isInnerArgument)
+    {
+        if ($isInnerArgument) {
+            return preg_replace("/(?<![\w]){$variableName}(?![(\w])/", $argumentValue, $attributeValue);
+        } else {
+            return str_replace("{{{$variableName}}}", $argumentValue, $attributeValue);
+        }
     }
 
     /**
      * Replaces args with replacements given, behavior is specific to persisted arguments.
-     * @param string $replacement
-     * @param string $attributeValue
-     * @param string $fullVariable
-     * @param string $variable
+     * @param string  $replacement
+     * @param string  $attributeValue
+     * @param string  $fullVariable
+     * @param string  $variable
      * @param boolean $isParameter
      * @return string
      */
@@ -245,13 +367,118 @@ class ActionGroupObject
 
         // parameter replacements require changing of (arg.field) to ($arg.field$)
         if ($isParameter) {
-            $fullReplacement = str_replace($variable, trim($replacement, '$'), $fullVariable);
+            $fullReplacement = str_replace($variable, trim($replacement, '$'), trim($fullVariable, "'"));
             $newAttributeValue = str_replace($fullVariable, $scope . $fullReplacement . $scope, $newAttributeValue);
         } else {
-            $newAttributeValue = str_replace('{{', $scope, str_replace('}}', $scope, $newAttributeValue));
-            $newAttributeValue = str_replace($variable, trim($replacement, '$'), $newAttributeValue);
+            $fullReplacement = str_replace($variable, trim($replacement, '$'), $fullVariable);
+            $newAttributeValue = str_replace(
+                '{{' . $fullVariable . '}}',
+                $scope . $fullReplacement . $scope,
+                $newAttributeValue
+            );
         }
 
         return $newAttributeValue;
+    }
+
+    /**
+     * Finds and returns all original stepkeys of actions in actionGroup.
+     * @return string[]
+     */
+    public function extractStepKeys()
+    {
+        $originalKeys = [];
+        foreach ($this->parsedActions as $action) {
+            //limit actions returned to list that are relevant
+            foreach (self::ACTION_GROUP_TYPES as $actionValue) {
+                if ($actionValue === $action->getType()) {
+                    $originalKeys[] = $action->getStepKey();
+                }
+            }
+        }
+        return $originalKeys;
+    }
+
+    /**
+     * Getter for the Action Group Name
+     *
+     * @return string
+     */
+    public function getName()
+    {
+        return $this->name;
+    }
+
+    /**
+     * Getter for the Parent Action Group Name
+     *
+     * @return string
+     */
+    public function getParentName()
+    {
+        return $this->parentActionGroup;
+    }
+
+    /**
+     * Getter for the Action Group Actions
+     *
+     * @return ActionObject[]
+     */
+    public function getActions()
+    {
+        return $this->parsedActions;
+    }
+
+    /**
+     * Getter for the Action Group Arguments
+     *
+     * @return array
+     */
+    public function getArguments()
+    {
+        return $this->arguments;
+    }
+
+    /**
+     * Searches through ActionGroupObject's arguments and returns first argument wi
+     * @param string $name
+     * @param array  $argumentList
+     * @return ArgumentObject|null
+     */
+    private function findArgumentByName($name, $argumentList)
+    {
+        $matchedArgument = array_filter(
+            $argumentList,
+            function ($e) use ($name) {
+                return $e->getName() == $name;
+            }
+        );
+        if (isset(array_values($matchedArgument)[0])) {
+            return array_values($matchedArgument)[0];
+        }
+        return null;
+    }
+
+    /**
+     * Replaces references to step keys used earlier in an action group
+     *
+     * @param ActionObject $action
+     * @param array        $replacementStepKeys
+     * @return ActionObject[]
+     */
+    private function replaceCreateDataKeys($action, $replacementStepKeys)
+    {
+        $resolvedActionAttributes = [];
+
+        foreach ($action->getCustomActionAttributes() as $actionAttribute => $actionAttributeDetails) {
+            if (is_array($actionAttributeDetails) && array_key_exists('createDataKey', $actionAttributeDetails)) {
+                $actionAttributeDetails['createDataKey'] =
+                    $replacementStepKeys[$actionAttributeDetails['createDataKey']] ??
+                    $actionAttributeDetails['createDataKey'];
+            }
+            $resolvedActionAttributes[$actionAttribute] = $actionAttributeDetails;
+        }
+
+        return $resolvedActionAttributes;
     }
 }

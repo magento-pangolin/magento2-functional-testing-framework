@@ -7,19 +7,19 @@
 namespace tests\unit\Magento\FunctionalTestFramework\Page\Objects;
 
 use Magento\FunctionalTestingFramework\Page\Objects\PageObject;
-use PHPUnit\Framework\TestCase;
+use Magento\FunctionalTestingFramework\Util\MagentoTestCase;
 
 /**
  * Class PageObjectTest
  */
-class PageObjectTest extends TestCase
+class PageObjectTest extends MagentoTestCase
 {
     /**
      * Assert that the page object has a section
      */
     public function testHasSection()
     {
-        $page = new PageObject('name', 'urlPath', 'module', ['section1', 'section2'], false);
+        $page = new PageObject('name', 'urlPath', 'module', ['section1', 'section2'], false, 'area');
         $this->assertTrue($page->hasSection('section1'));
     }
 
@@ -28,7 +28,7 @@ class PageObjectTest extends TestCase
      */
     public function testDoesntHaveSection()
     {
-        $page = new PageObject('name', 'urlPath', 'module', ['section1', 'section2'], false);
+        $page = new PageObject('name', 'urlPath', 'module', ['section1', 'section2'], false, 'area');
         $this->assertFalse($page->hasSection('section3'));
     }
 }

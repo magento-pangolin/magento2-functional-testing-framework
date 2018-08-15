@@ -37,6 +37,12 @@ class AdminExecutor extends AbstractExecutor implements CurlInterface
     private $response;
 
     /**
+     * Should executor remove backend_name from api url
+     * @var boolean
+     */
+    private $removeBackend;
+
+    /**
      * Backend url.
      *
      * @var string
@@ -45,15 +51,18 @@ class AdminExecutor extends AbstractExecutor implements CurlInterface
 
     /**
      * Constructor.
+     * @param boolean $removeBackend
      *
      * @constructor
+     * @throws TestFrameworkException
      */
-    public function __construct()
+    public function __construct($removeBackend)
     {
         if (!isset(parent::$baseUrl)) {
             parent::resolveBaseUrl();
         }
         self::$adminUrl = parent::$baseUrl . getenv('MAGENTO_BACKEND_NAME') . '/';
+        $this->removeBackend = $removeBackend;
         $this->transport = new CurlTransport();
         $this->authorize();
     }
@@ -101,15 +110,21 @@ class AdminExecutor extends AbstractExecutor implements CurlInterface
      * Send request to the remote server.
      *
      * @param string $url
-     * @param array $data
+     * @param array  $data
      * @param string $method
-     * @param array $headers
+     * @param array  $headers
      * @return void
      * @throws TestFrameworkException
      */
     public function write($url, $data = [], $method = CurlInterface::POST, $headers = [])
     {
+        $url = ltrim($url, "/");
         $apiUrl = self::$adminUrl . $url;
+
+        if ($this->removeBackend) {
+            $apiUrl = parent::$baseUrl . $url;
+        }
+
         if ($this->formKey) {
             $data['form_key'] = $this->formKey;
         } else {
@@ -153,8 +168,8 @@ class AdminExecutor extends AbstractExecutor implements CurlInterface
     /**
      * Add additional option to cURL.
      *
-     * @param int $option the CURLOPT_* constants
-     * @param int|string|bool|array $value
+     * @param integer                      $option CURLOPT_* constants.
+     * @param integer|string|boolean|array $value
      * @return void
      */
     public function addOption($option, $value)

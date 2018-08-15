@@ -6,6 +6,8 @@
 
 namespace Magento\FunctionalTestingFramework\Util;
 
+use Magento\FunctionalTestingFramework\Config\MftfApplicationConfig;
+
 /**
  * Class ConfigSanitizerUtil
  */
@@ -13,7 +15,7 @@ class ConfigSanitizerUtil
 {
     /**
      * Sanitizes the given Webdriver Config's url and selenium env params, can be selective based on second argument.
-     * @param array $config
+     * @param array    $config
      * @param String[] $params
      * @return array
      */
@@ -25,7 +27,7 @@ class ConfigSanitizerUtil
             $config['url'] = self::sanitizeUrl($config['url']);
         }
 
-        if (array_key_exists('selenium', array_flip($params))) {
+        if (in_array('selenium', $params)) {
             $config = self::sanitizeSeleniumEnvs($config);
         }
 
@@ -84,9 +86,9 @@ class ConfigSanitizerUtil
      * @param string $url
      * @return string
      */
-    private static function sanitizeUrl($url)
+    public static function sanitizeUrl($url)
     {
-        if ($url === "") {
+        if (strlen($url) == 0 && !MftfApplicationConfig::getConfig()->forceGenerateEnabled()) {
             trigger_error("MAGENTO_BASE_URL must be defined in .env", E_USER_ERROR);
         }
 

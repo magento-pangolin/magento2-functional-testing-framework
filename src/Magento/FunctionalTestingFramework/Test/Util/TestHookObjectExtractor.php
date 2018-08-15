@@ -6,6 +6,7 @@
 
 namespace Magento\FunctionalTestingFramework\Test\Util;
 
+use Magento\FunctionalTestingFramework\Test\Objects\ActionObject;
 use Magento\FunctionalTestingFramework\Test\Objects\TestHookObject;
 
 /**
@@ -21,19 +22,11 @@ class TestHookObjectExtractor extends BaseObjectExtractor
     private $actionObjectExtractor;
 
     /**
-     * Test Entity Extractor object
-     *
-     * @var TestEntityExtractor
-     */
-    private $testEntityExtractor;
-
-    /**
      * TestHookObjectExtractor constructor
      */
     public function __construct()
     {
         $this->actionObjectExtractor = new ActionObjectExtractor();
-        $this->testEntityExtractor = new TestEntityExtractor();
     }
 
     /**
@@ -42,8 +35,9 @@ class TestHookObjectExtractor extends BaseObjectExtractor
      *
      * @param string $parentName
      * @param string $hookType
-     * @param array $testHook
+     * @param array  $testHook
      * @return TestHookObject
+     * @throws \Exception
      */
     public function extractHook($parentName, $hookType, $testHook)
     {
@@ -55,8 +49,27 @@ class TestHookObjectExtractor extends BaseObjectExtractor
         $hook = new TestHookObject(
             $hookType,
             $parentName,
-            $this->actionObjectExtractor->extractActions($hookActions),
-            $this->testEntityExtractor->extractTestEntities($hookActions)
+            $this->actionObjectExtractor->extractActions($hookActions)
+        );
+
+        return $hook;
+    }
+
+    /**
+     * Creates the default failed hook object with a single saveScreenshot action.
+     *
+     * @param string $parentName
+     * @return TestHookObject
+     */
+    public function createDefaultFailedHook($parentName)
+    {
+
+        $saveScreenshotStep = [new ActionObject("saveScreenshot", "saveScreenshot", [])];
+
+        $hook = new TestHookObject(
+            TestObjectExtractor::TEST_FAILED_HOOK,
+            $parentName,
+            $saveScreenshotStep
         );
 
         return $hook;

@@ -6,100 +6,128 @@
 
 namespace tests\verification\Tests;
 
-use Magento\FunctionalTestingFramework\Test\Handlers\TestObjectHandler;
-use Magento\FunctionalTestingFramework\Util\TestGenerator;
-use PHPUnit\Framework\TestCase;
+use tests\util\MftfTestCase;
 
-class ActionGroupMergeGenerationTest extends TestCase
+class ActionGroupMergeGenerationTest extends MftfTestCase
 {
-    const RESOURCES_PATH = __DIR__ . '/../Resources';
-
     /**
      * Tests flat generation of a hardcoded test file with no external references.
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testBasicActionGroup()
     {
-        $this->runComparisonTest('BasicActionGroupTest');
+        $this->generateAndCompareTest('BasicActionGroupTest');
     }
 
     /**
      * Test an ordinary action group with data
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testActionGroupWithData()
     {
-        $this->runComparisonTest('ActionGroupWithDataTest');
+        $this->generateAndCompareTest('ActionGroupWithDataTest');
     }
 
     /**
      * Test an action group with data overridden in arguments
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testActionGroupWithDataOverride()
     {
-        $this->runComparisonTest('ActionGroupWithDataOverrideTest');
+        $this->generateAndCompareTest('ActionGroupWithDataOverrideTest');
     }
 
     /**
      * Test an action group with no default data
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testActionGroupWithNoDefault()
     {
-        $this->runComparisonTest('ActionGroupWithNoDefaultTest');
+        $this->generateAndCompareTest('ActionGroupWithNoDefaultTest');
     }
 
     /**
      * Test an action group with persisted data
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testActionGroupWithPersistedData()
     {
-        $this->runComparisonTest('ActionGroupWithPersistedData');
+        $this->generateAndCompareTest('ActionGroupWithPersistedData');
     }
 
     /**
      * Test an action group with top level persisted data
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testActionGroupWithTopLevelPersistedData()
     {
-        $this->runComparisonTest('ActionGroupWithTopLevelPersistedData');
+        $this->generateAndCompareTest('ActionGroupWithTopLevelPersistedData');
     }
 
     /**
      * Test an action group called multiple times
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testMultipleActionGroups()
     {
-        $this->runComparisonTest('MultipleActionGroupsTest');
+        $this->generateAndCompareTest('MultipleActionGroupsTest');
     }
 
     /**
      * Test an action group with a merge counterpart
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testMergedActionGroup()
     {
-        $this->runComparisonTest('MergedActionGroupTest');
+        $this->generateAndCompareTest('MergedActionGroupTest');
     }
 
     /**
      * Test an action group with arguments named similarly to elements
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
     public function testArgumentWithSameNameAsElement()
     {
-        $this->runComparisonTest('ArgumentWithSameNameAsElement');
+        $this->generateAndCompareTest('ArgumentWithSameNameAsElement');
     }
 
     /**
-     * Generate a Test by name and assert that it equals the corresponding .txt source of truth
+     * Test an action group with a merge counterpart that's merged via insertBefore
      *
-     * @param string $testName
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
      */
-    private function runComparisonTest($testName)
+    public function testMergedActionGroupViaInsertBefore()
     {
-        $test = TestObjectHandler::getInstance()->getObject($testName);
-        $testHandler = TestGenerator::getInstance(null, [$test]);
-        $testHandler->createAllTestFiles();
+        $this->generateAndCompareTest('ActionGroupMergedViaInsertBefore');
+    }
 
-        $this->assertFileEquals(
-            self::RESOURCES_PATH . DIRECTORY_SEPARATOR . $test->getName() . ".txt",
-            $testHandler->getExportDir() . DIRECTORY_SEPARATOR . $test->getCodeceptionName() . ".php"
-        );
+    /**
+     * Test an action group with a merge counterpart that's merged via insertAfter
+     *
+     * @throws \Exception
+     * @throws \Magento\FunctionalTestingFramework\Exceptions\TestReferenceException
+     */
+    public function testMergedActionGroupViaInsertAfter()
+    {
+        $this->generateAndCompareTest('ActionGroupMergedViaInsertAfter');
     }
 }
